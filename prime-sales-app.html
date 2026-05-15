@@ -553,6 +553,38 @@
           <button class="btn btn-primary btn-full" onclick="salvarProduto()">Adicionar produto</button>
         </div>
       </div>
+
+      <div class="card" style="margin-top:10px;">
+        <div class="card-header"><h3>Importar por planilha</h3></div>
+        <div class="card-body">
+          <div style="background:var(--gray-50);border:1.5px dashed var(--gray-300);border-radius:var(--radius-sm);padding:16px;text-align:center;margin-bottom:12px;">
+            <div style="font-size:13px;color:var(--gray-600);margin-bottom:10px;">Baixe o modelo, preencha e envie</div>
+            <button class="btn btn-outline btn-sm" onclick="baixarModelo()" style="margin-bottom:10px;">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Baixar modelo CSV
+            </button>
+            <div>
+              <label for="csv-input" class="btn btn-outline btn-sm" style="cursor:pointer;">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Selecionar arquivo CSV
+              </label>
+              <input type="file" id="csv-input" accept=".csv" style="display:none;" onchange="lerCSV(event)">
+            </div>
+          </div>
+          <div id="csv-preview" style="display:none;">
+            <div style="font-size:13px;font-weight:500;margin-bottom:8px;" id="csv-preview-title"></div>
+            <div id="csv-preview-list" style="max-height:200px;overflow-y:auto;margin-bottom:12px;"></div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="importarProdutos()">Importar todos</button>
+              <button class="btn btn-outline" onclick="cancelarImport()">Cancelar</button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--gray-400);margin-top:8px;">
+            Formato: Nome, Marca, Preço, Estoque — uma linha por produto
+          </div>
+        </div>
+      </div>
+
       <div class="section-title">Produtos cadastrados</div>
       <div class="card"><div class="card-body" id="lista-produtos"></div></div>
     </div>
@@ -921,6 +953,78 @@ window.excluirProduto = async function(id) {
   await deleteDoc(doc(db, 'produtos', id));
   toast('Produto excluído.');
 };
+
+// CSV IMPORT
+let produtosParaImportar = [];
+
+window.baixarModelo = function() {
+  const csv = "Nome,Marca,Preco,Estoque\nCamiseta Polo M,Nike,89.90,50\nCalca Jeans 42,Levis,159.90,30\nTenis Runner 39,Adidas,249.90,20";
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'modelo-produtos.csv';
+  a.click(); URL.revokeObjectURL(url);
+};
+
+window.lerCSV = function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.trim().split('\n');
+    const header = lines[0].toLowerCase();
+    const startLine = (header.includes('nome') || header.includes('marca')) ? 1 : 0;
+    produtosParaImportar = [];
+    const erros = [];
+    for (let i = startLine; i < lines.length; i++) {
+      const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+      if (cols.length < 4 || !cols[0]) continue;
+      const preco = parseFloat(cols[2].replace(',', '.'));
+      const estoque = parseInt(cols[3]);
+      if (isNaN(preco) || isNaN(estoque)) { erros.push('Linha ' + (i+1) + ': preco ou estoque invalido'); continue; }
+      produtosParaImportar.push({ nome: cols[0], marca: cols[1] || '', preco, estoque });
+    }
+    const preview = document.getElementById('csv-preview');
+    const title = document.getElementById('csv-preview-title');
+    const list = document.getElementById('csv-preview-list');
+    if (!produtosParaImportar.length) {
+      toast('Nenhum produto valido encontrado no arquivo.');
+      event.target.value = '';
+      return;
+    }
+    title.textContent = produtosParaImportar.length + ' produto(s) encontrado(s) para importar:';
+    list.innerHTML = produtosParaImportar.map(p =>
+      '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100);font-size:13px;">' +
+      '<div><span style="font-weight:500;">' + p.nome + '</span><span style="color:var(--gray-400);margin-left:6px;">' + p.marca + '</span></div>' +
+      '<div style="text-align:right;color:var(--green-dark);font-family:DM Mono,monospace;">' + fmt(p.preco) + ' &middot; ' + p.estoque + ' un.</div>' +
+      '</div>'
+    ).join('');
+    if (erros.length) {
+      list.innerHTML += '<div style="font-size:12px;color:var(--red);margin-top:8px;">' + erros.join('<br>') + '</div>';
+    }
+    preview.style.display = 'block';
+  };
+  reader.readAsText(file, 'UTF-8');
+};
+
+window.importarProdutos = async function() {
+  if (!produtosParaImportar.length) return;
+  const btn = document.querySelector('#csv-preview .btn-primary');
+  btn.textContent = 'Importando...';
+  btn.disabled = true;
+  for (const p of produtosParaImportar) {
+    await addDoc(collection(db, 'produtos'), { ...p, ativo: true, criadoEm: serverTimestamp() });
+  }
+  toast(produtosParaImportar.length + ' produto(s) importado(s) com sucesso!');
+  cancelarImport();
+};
+
+window.cancelarImport = function() {
+  produtosParaImportar = [];
+  document.getElementById('csv-preview').style.display = 'none';
+  document.getElementById('csv-input').value = '';
+};
+
 
 function renderProdutosAdmin() {
   const el = document.getElementById('lista-produtos');

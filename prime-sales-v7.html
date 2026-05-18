@@ -282,6 +282,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
             <div class="field"><label>Preço (R$)</label><input type="number" id="np-preco" placeholder="0,00" step="0.01" min="0"></div>
             <div class="field"><label>Estoque</label><input type="number" id="np-estoque" placeholder="0" min="0"></div>
           </div>
+          <div class="field"><label>Observação interna (visível só para você)</label><input type="text" id="np-obs" placeholder="Ex: Em falta no fornecedor até dia 20"></div>
           <div class="destaque-check">
             <input type="checkbox" id="np-dest">
             <label for="np-dest">⭐ Produto em destaque (aparece primeiro no catálogo)</label>
@@ -334,6 +335,20 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
 
     <!-- ADMIN: RELATÓRIOS -->
     <div class="page" id="page-relatorios">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+        <button class="btn btn-outline btn-sm" style="justify-content:flex-start;gap:6px;" onclick="goAdmin(&quot;inadimplencia&quot;)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Inadimplência
+        </button>
+        <button class="btn btn-outline btn-sm" style="justify-content:flex-start;gap:6px;" onclick="goAdmin(&quot;clientes&quot;)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          Histórico clientes
+        </button>
+        <button class="btn btn-outline btn-sm" style="justify-content:flex-start;gap:6px;" onclick="goAdmin(&quot;meta&quot;)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          Metas mensais
+        </button>
+      </div>
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
         <button id="rb-7" class="btn btn-outline btn-sm" onclick="setRelPeriod(7)">7 dias</button>
         <button id="rb-30" class="btn btn-primary btn-sm" onclick="setRelPeriod(30)">30 dias</button>
@@ -408,6 +423,55 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
       <div id="meus-list"></div>
     </div>
 
+
+    <!-- ADMIN: INADIMPLÊNCIA -->
+    <div class="page" id="page-inadimplencia">
+      <div style="background:var(--red-bg);border:1px solid var(--red);border-radius:var(--r);padding:12px 14px;margin-bottom:14px;font-size:13px;color:var(--red);">
+        ⚠️ Pedidos aprovados há mais de <strong id="inad-dias-label">30</strong> dias sem marcação de faturado.
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <button id="ib-15" class="btn btn-outline btn-sm" onclick="setInadPeriod(15)">15 dias</button>
+        <button id="ib-30" class="btn btn-primary btn-sm" onclick="setInadPeriod(30)">30 dias</button>
+        <button id="ib-60" class="btn btn-outline btn-sm" onclick="setInadPeriod(60)">60 dias</button>
+      </div>
+      <div class="stats-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;">
+        <div class="stat" style="border-color:rgba(224,62,62,0.3);">
+          <div class="stat-label">Pedidos em aberto</div>
+          <div class="stat-val" id="inad-qtd" style="color:var(--red);">0</div>
+        </div>
+        <div class="stat" style="border-color:rgba(224,62,62,0.3);">
+          <div class="stat-label">Valor em aberto</div>
+          <div class="stat-val" id="inad-val" style="font-size:18px;color:var(--red);">R$0</div>
+        </div>
+      </div>
+      <div id="inad-list"></div>
+    </div>
+
+    <!-- ADMIN: HISTÓRICO POR CLIENTE -->
+    <div class="page" id="page-clientes">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="search-input" id="busca-cliente" placeholder="Buscar cliente..." oninput="buscarCliente(this.value)">
+      </div>
+      <div id="clientes-list" style="margin-top:8px;"></div>
+    </div>
+
+    <!-- ADMIN: META MENSAL -->
+    <div class="page" id="page-meta">
+      <div class="card">
+        <div class="card-header"><h3>Definir meta mensal</h3></div>
+        <div class="card-body">
+          <div class="field"><label>Meta de vendas (R$)</label><input type="number" id="meta-valor" placeholder="Ex: 50000" min="0"></div>
+          <div class="field"><label>Mês de referência</label><input type="month" id="meta-mes"></div>
+          <button class="btn btn-primary btn-full" onclick="salvarMeta()">Salvar meta</button>
+        </div>
+      </div>
+      <div class="section-title">Progresso atual</div>
+      <div id="meta-progress"></div>
+      <div class="section-title">Histórico de metas</div>
+      <div id="meta-historico"></div>
+    </div>
+
   </div><!-- end main -->
 
   <!-- NAV ADMIN -->
@@ -429,6 +493,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
       <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios
     </div>
   </nav>
+  <!-- NAV ADMIN EXTRA (segundo nível acessado via botões dentro das páginas) -->
 
   <!-- NAV VENDEDOR -->
   <nav class="bottom-nav" id="nav-vend" style="display:none;">
@@ -442,7 +507,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
       <span class="nav-badge" id="badge-cart"></span>
       <svg viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>Pedido
     </div>
-    <div class="nav-item" id="nv-meus" onclick="goVend(&quot;meus&quot;)">
+    <div class="nav-item" id="nv-meus" onclick="goVend('meus')">
       <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/></svg>Meus Pedidos
     </div>
   </nav>
@@ -465,6 +530,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
       <div class="field"><label>Preço (R$)</label><input type="number" id="edit-preco" step="0.01" min="0"></div>
       <div class="field"><label>Estoque</label><input type="number" id="edit-estoque" min="0"></div>
     </div>
+    <div class="field"><label>Observação interna</label><input type="text" id="edit-obs" placeholder="Ex: Em falta no fornecedor"></div>
     <div class="destaque-check">
       <input type="checkbox" id="edit-dest">
       <label for="edit-dest">⭐ Produto em destaque</label>
@@ -596,6 +662,9 @@ window.goAdmin = function(page) {
   const pg = $('page-' + page); if(pg) pg.classList.add('active');
   if (page === 'relatorios') renderRelatorios();
   if (page === 'produtos') buscarProd('');
+  if (page === 'inadimplencia') renderInadimplencia();
+  if (page === 'clientes') buscarCliente('');
+  if (page === 'meta') { renderMetas(); const m=new Date(); $('meta-mes').value=m.getFullYear()+'-'+(String(m.getMonth()+1).padStart(2,'0')); }
   window.scrollTo(0,0);
 };
 
@@ -619,6 +688,8 @@ function watchPedidos() {
     const novos = pedidosCache.filter(p=>p.status==='pendente' && !prev.includes(p.id));
     novos.forEach(p => notificar('🛒 Novo pedido - Prime Sales', (p.vendedorNome||'Vendedor') + ' enviou um pedido'));
     renderResumo(); renderPedidos();
+    if ($('page-inadimplencia')&&$('page-inadimplencia').classList.contains('active')) renderInadimplencia();
+    if ($('page-clientes')&&$('page-clientes').classList.contains('active')) buscarCliente($('busca-cliente')?$('busca-cliente').value:'');
     const pend = pedidosCache.filter(p=>p.status==='pendente').length;
     const b=$('badge-pend'); b.textContent=pend; b.style.display=pend>0?'flex':'none';
     $('st-pend').textContent = pend;
@@ -693,13 +764,19 @@ function orderHTML(p) {
   const itensText = (p.itens||[]).map(i=>`${i.qty}x ${i.nome}`).join(' · ');
   const itensDet = (p.itens||[]).map(i=>`<div style="font-size:13px;padding:4px 0;border-bottom:1px solid var(--border);">${i.qty}x <span style="color:var(--gold);font-size:11px;">[${i.ref||''}]</span> ${i.nome} — ${fmt(i.preco)} = <strong>${fmt(i.qty*i.preco)}</strong></div>`).join('');
   const cliente = p.cliente && p.cliente.nome ? `<div style="background:var(--gold-light);border-radius:var(--r2);padding:8px 10px;margin-bottom:8px;font-size:12px;"><strong style="color:var(--gold);">Cliente:</strong> ${p.cliente.nome}${p.cliente.doc?' · '+p.cliente.doc:''}${p.cliente.tel?' · '+p.cliente.tel:''}</div>` : '';
+  const pid = p.id;
   const acoes = p.status==='pendente' ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-    <button class="btn btn-success btn-sm" onclick="aprovar(&quot;${p.id}&quot;)">✓ Aprovar</button>
-    <button class="btn btn-danger btn-sm" onclick="rejeitar(&quot;${p.id}&quot;)">✕ Rejeitar</button>
-    <button class="btn btn-outline btn-sm" onclick="exportPDF(&quot;${p.id}&quot;)" style="margin-left:auto;">⬇ PDF</button>
-  </div>` : `<div style="margin-top:8px;text-align:right;"><button class="btn btn-outline btn-sm" onclick="exportPDF(&quot;${p.id}&quot;)">⬇ PDF</button></div>`;
+    <button class="btn btn-success btn-sm" data-pid="${pid}" onclick="aprovar(this.dataset.pid)">✓ Aprovar</button>
+    <button class="btn btn-danger btn-sm" data-pid="${pid}" onclick="rejeitar(this.dataset.pid)">✕ Rejeitar</button>
+    <button class="btn btn-outline btn-sm" data-pid="${pid}" onclick="exportPDF(this.dataset.pid)">⬇ PDF</button>
+    <button class="btn btn-outline btn-sm" data-pid="${pid}" onclick="marcarFaturado(this.dataset.pid)" style="color:var(--green);">✔ Faturado</button>
+  </div>` : `<div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;flex-wrap:wrap;">
+    <button class="btn btn-outline btn-sm" data-pid="${pid}" onclick="exportPDF(this.dataset.pid)">⬇ PDF</button>
+    <button class="btn btn-outline btn-sm" data-pid="${pid}" onclick="duplicarPedido(this.dataset.pid)">⧉ Duplicar</button>
+    ${p.faturado ? '<span style="font-size:11px;color:var(--green);padding:4px 8px;">✔ Faturado</span>' : '<button class="btn btn-outline btn-sm" data-pid="'+pid+'" onclick="marcarFaturado(this.dataset.pid)" style="color:var(--green);">✔ Faturado</button>'}
+  </div>`;
   return `<div class="order-card ${p.status}" id="oc-${p.id}">
-    <div class="order-head" onclick="toggleOrder(&quot;${p.id}&quot;)">
+    <div class="order-head" data-oid="${p.id}" onclick="toggleOrder(this.dataset.oid)">
       <div>
         <div class="order-id">#${p.id.slice(-6).toUpperCase()}</div>
         <div class="order-meta">${p.vendedorNome||'Vendedor'} · ${hora}</div>
@@ -777,10 +854,11 @@ window.salvarProduto = async function() {
   const nome = $('np-nome').value.trim();
   const preco = parseFloat($('np-preco').value);
   const estoque = parseInt($('np-estoque').value);
+  const obs = $('np-obs') ? $('np-obs').value.trim() : '';
   const destaque = $('np-dest').checked;
   if (!nome || isNaN(preco) || isNaN(estoque)) { toast('Preencha nome, preço e estoque.'); return; }
-  await addDoc(collection(db,'produtos'), {ref, marca, nome, preco, estoque, destaque, ativo:true, criadoEm:serverTimestamp()});
-  ['np-ref','np-marca','np-nome','np-preco','np-estoque'].forEach(id => { const el=$(id); if(el) el.value=''; });
+  await addDoc(collection(db,'produtos'), {ref, marca, nome, preco, estoque, obs, destaque, ativo:true, criadoEm:serverTimestamp()});
+  ['np-ref','np-marca','np-nome','np-preco','np-estoque','np-obs'].forEach(id => { const el=$(id); if(el) el.value=''; });
   $('np-dest').checked = false;
   toast('Produto adicionado!');
 };
@@ -799,8 +877,8 @@ window.buscarProd = function(termo) {
     <div style="text-align:right;flex-shrink:0;">
       <div class="prod-price">${fmt(p.preco)}</div>
       <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end;">
-        <button class="btn btn-outline btn-sm" onclick="abrirEdit(&quot;${p.id}&quot;)">Editar</button>
-        <button class="btn btn-danger btn-sm" onclick="excluir(&quot;${p.id}&quot;)">Excluir</button>
+        <button class="btn btn-outline btn-sm" data-pid='${p.id}' onclick="abrirEdit(this.dataset.pid)">Editar</button>
+        <button class="btn btn-danger btn-sm" data-pid='${p.id}' onclick="excluir(this.dataset.pid)">Excluir</button>
       </div>
     </div>
   </div>`).join('');
@@ -810,7 +888,7 @@ window.abrirEdit = function(id) {
   const p = produtos.find(x=>x.id===id); if(!p) return;
   $('edit-id').value=id; $('edit-ref').value=p.ref||''; $('edit-marca').value=p.marca||'';
   $('edit-nome').value=p.nome; $('edit-preco').value=p.preco; $('edit-estoque').value=p.estoque;
-  $('edit-dest').checked=!!p.destaque;
+  $('edit-obs').value=p.obs||''; $('edit-dest').checked=!!p.destaque;
   $('modal-edit').classList.add('open');
 };
 
@@ -825,7 +903,8 @@ window.salvarEdit = async function() {
   const estoque = parseInt($('edit-estoque').value);
   const destaque = $('edit-dest').checked;
   if (!nome||isNaN(preco)||isNaN(estoque)) { toast('Preencha todos os campos.'); return; }
-  await updateDoc(doc(db,'produtos',id), {ref,marca,nome,preco,estoque,destaque});
+  const obs = $('edit-obs') ? $('edit-obs').value.trim() : '';
+  await updateDoc(doc(db,'produtos',id), {ref,marca,nome,preco,estoque,obs,destaque});
   fecharEdit(); toast('Produto atualizado!');
 };
 
@@ -929,12 +1008,13 @@ window.buscarCat = function(termo) {
         <div class="cat-ref">${p.ref||''}</div>
         <div class="cat-marca">${p.marca||''}</div>
         <div class="cat-price">${fmt(p.preco)}</div>
+        ${p.obs ? '<div style="font-size:11px;color:var(--gold);margin-top:2px;">📝 '+p.obs+'</div>' : ''}
         <div class="cat-stock" style="color:${p.estoque<=5?'var(--red)':'var(--text3)'}">${p.estoque<=5?'⚠️ ':''}Estoque: ${p.estoque}</div>
       </div>
       <div class="qty-ctrl">
-        <button class="qty-btn${qty>0?' on':''}" onclick="setQty('${p.id}',-1)">−</button>
+        <button class="qty-btn${qty>0?' on':''}" data-pid="${p.id}" data-d="-1" onclick="setQty(this.dataset.pid,parseInt(this.dataset.d))">−</button>
         <span class="qty-num">${qty}</span>
-        <button class="qty-btn${qty>0?' on':''}" onclick="setQty('${p.id}',1)">+</button>
+        <button class="qty-btn${qty>0?' on':''}" data-pid="${p.id}" data-d="1" onclick="setQty(this.dataset.pid,parseInt(this.dataset.d))">+</button>
       </div>
     </div>`;
   }).join('');
@@ -967,7 +1047,7 @@ function renderCart() {
         <div style="font-size:11px;color:var(--gold);">${item.ref||''}</div>
         <div style="font-size:12px;color:var(--text3);">${item.qty}x ${fmt(item.preco)} = ${fmt(sub)}</div>
       </div>
-      <button class="btn btn-danger btn-sm" onclick="remCart(&quot;${id}&quot;)">✕</button>
+      <button class="btn btn-danger btn-sm" data-cid='${id}' onclick="remCart(this.dataset.cid)">✕</button>
     </div>`;
   }).join('');
   $('cart-total').textContent = fmt(total);
@@ -1053,7 +1133,7 @@ function renderInicio() {
   $('vd-stats').innerHTML =
     `<div class="stat gold"><div class="stat-label">Vendas do período</div><div class="stat-val" style="font-size:20px;">R$${Number(faturado).toFixed(0)}</div><div class="stat-sub">Apura dia 15 · ${diasRest}d restantes</div></div>` +
     `<div class="stat"><div class="stat-label">Comissão prevista</div><div class="stat-val" style="font-size:20px;color:var(--gold);">R$${Number(comissao).toFixed(0)}</div><div class="stat-sub">Authomix 2% · Outros ${faixa}</div></div>` +
-    `<div class="stat" onclick="goVend(&quot;meus&quot;)" style="cursor:pointer"><div class="stat-label">Pendentes</div><div class="stat-val">${pendentes.length}</div></div>` +
+    `<div class="stat" data-page="meus" onclick="goVend(this.dataset.page)" style="cursor:pointer"><div class="stat-label">Pendentes</div><div class="stat-val">${pendentes.length}</div></div>` +
     `<div class="stat"><div class="stat-label">Aprovados</div><div class="stat-val">${aprovados.length}</div></div>`;
 
   // Gráfico evolução
@@ -1127,6 +1207,225 @@ window.importarCSV = async function() {
 
 window.cancelarCSV = function() {
   csvImportData=[]; $('csv-preview').style.display='none'; $('csv-file').value='';
+};
+
+
+// ─── MARCAR FATURADO ──────────────────────────────────────
+window.marcarFaturado = async function(id) {
+  if (!confirm('Marcar pedido como faturado? Isso indica que já foi enviado para a representada.')) return;
+  await updateDoc(doc(db,'pedidos',id), {faturado:true, faturadoEm:serverTimestamp()});
+  toast('Pedido marcado como faturado!');
+};
+
+// ─── DUPLICAR PEDIDO ──────────────────────────────────────
+window.duplicarPedido = async function(id) {
+  const p = pedidosCache.find(x=>x.id===id); if(!p) return;
+  // Load itens into carrinho
+  carrinho = {};
+  (p.itens||[]).forEach(item => {
+    const prod = produtos.find(x=>x.id===item.prodId);
+    const estDisp = prod ? prod.estoque : 999;
+    if (estDisp > 0) {
+      carrinho[item.prodId] = {qty: Math.min(item.qty, estDisp), nome:item.nome, preco:item.preco, ref:item.ref||'', marca:item.marca||''};
+    }
+  });
+  const total = Object.values(carrinho).reduce((a,b)=>a+b.qty,0);
+  const b=$('badge-cart'); if(b){ b.textContent=total; b.style.display=total>0?'flex':'none'; }
+  toast('Pedido carregado no carrinho! Revise e envie.');
+  // Switch to vendedor view won't work from admin - show info
+  toast('Itens carregados! Acesse como vendedor para enviar.');
+};
+
+// ─── INADIMPLÊNCIA ────────────────────────────────────────
+let inadPeriod = 30;
+
+window.setInadPeriod = function(dias) {
+  inadPeriod = dias;
+  [15,30,60].forEach(d => { const b=$('ib-'+d); if(b) b.className='btn btn-outline btn-sm'; });
+  const a=$('ib-'+dias); if(a) a.className='btn btn-primary btn-sm';
+  const lbl=$('inad-dias-label'); if(lbl) lbl.textContent=dias;
+  renderInadimplencia();
+};
+
+function renderInadimplencia() {
+  const agora = Date.now();
+  const limite = agora - (inadPeriod * 86400000);
+  // Pedidos aprovados, não faturados, aprovados há mais de X dias
+  const inadimplentes = pedidosCache.filter(p => {
+    if (p.status !== 'aprovado') return false;
+    if (p.faturado) return false;
+    const aprovadoTs = p.aprovadoEm ? p.aprovadoEm.seconds*1000 : (p.criadoEm ? p.criadoEm.seconds*1000 : 0);
+    return aprovadoTs > 0 && aprovadoTs < limite;
+  }).sort((a,b) => {
+    const ta = a.aprovadoEm ? a.aprovadoEm.seconds : (a.criadoEm ? a.criadoEm.seconds : 0);
+    const tb = b.aprovadoEm ? b.aprovadoEm.seconds : (b.criadoEm ? b.criadoEm.seconds : 0);
+    return ta - tb; // mais antigos primeiro
+  });
+
+  const totalVal = inadimplentes.reduce((a,p)=>a+(p.total||0),0);
+  const qtdEl=$('inad-qtd'), valEl=$('inad-val');
+  if(qtdEl) qtdEl.textContent = inadimplentes.length;
+  if(valEl) valEl.textContent = 'R$'+Number(totalVal).toFixed(0);
+
+  const el=$('inad-list'); if(!el) return;
+  if (!inadimplentes.length) {
+    el.innerHTML='<div class="empty"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Nenhuma pendência! Tudo faturado.</p></div>';
+    return;
+  }
+  el.innerHTML = inadimplentes.map(p => {
+    const aprovadoTs = p.aprovadoEm ? p.aprovadoEm.seconds*1000 : (p.criadoEm ? p.criadoEm.seconds*1000 : 0);
+    const diasAtraso = Math.floor((agora - aprovadoTs) / 86400000);
+    const hora = aprovadoTs ? new Date(aprovadoTs).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit'}) : '—';
+    const cli = p.cliente&&p.cliente.nome ? p.cliente.nome : 'Cliente não informado';
+    const pid = p.id;
+    return `<div class="order-card aprovado" style="border-left-color:var(--red);">
+      <div class="order-head" data-oid="${pid}" onclick="toggleOrder(this.dataset.oid)">
+        <div>
+          <div class="order-id">#${pid.slice(-6).toUpperCase()}</div>
+          <div class="order-meta">${cli} · Aprovado: ${hora}</div>
+          <div class="order-meta" style="color:var(--red);">⚠️ ${diasAtraso} dias sem faturar</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          <span class="badge" style="background:var(--red-bg);color:var(--red);">${diasAtraso}d atrasado</span>
+          <span style="font-size:13px;font-weight:700;color:var(--gold);">${fmt(p.total||0)}</span>
+        </div>
+      </div>
+      <div class="order-body" id="ob-${pid}">
+        <div style="font-size:13px;margin-bottom:8px;">${(p.itens||[]).map(i=>`${i.qty}x ${i.nome}`).join(' · ')}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" data-pid="${pid}" onclick="exportPDF(this.dataset.pid)">⬇ PDF</button>
+          <button class="btn btn-success btn-sm" data-pid="${pid}" onclick="marcarFaturado(this.dataset.pid)">✔ Marcar faturado</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── HISTÓRICO POR CLIENTE ────────────────────────────────
+window.buscarCliente = function(termo) {
+  const t = (termo||'').toLowerCase().trim();
+  // Group pedidos by client name
+  const clientes = {};
+  pedidosCache.forEach(p => {
+    const nome = p.cliente&&p.cliente.nome ? p.cliente.nome : 'Sem nome';
+    const doc2 = p.cliente&&p.cliente.doc ? p.cliente.doc : '';
+    const key = nome.toLowerCase();
+    if (t && !key.includes(t) && !doc2.toLowerCase().includes(t)) return;
+    if (!clientes[nome]) clientes[nome] = {nome, doc:doc2, tel:p.cliente&&p.cliente.tel?p.cliente.tel:'', pedidos:[], total:0};
+    clientes[nome].pedidos.push(p);
+    if (p.status==='aprovado') clientes[nome].total += p.total||0;
+  });
+
+  const el=$('clientes-list'); if(!el) return;
+  const entries = Object.values(clientes).sort((a,b)=>b.total-a.total);
+  if (!entries.length) {
+    el.innerHTML='<div class="empty"><p>Nenhum cliente encontrado</p></div>'; return;
+  }
+  el.innerHTML = entries.map(c => {
+    const aprovados = c.pedidos.filter(p=>p.status==='aprovado').length;
+    const pendentes = c.pedidos.filter(p=>p.status==='pendente').length;
+    const cid = encodeURIComponent(c.nome);
+    return `<div class="card" style="margin-bottom:8px;">
+      <div class="card-body">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+          <div>
+            <div style="font-weight:600;font-size:14px;">${c.nome}</div>
+            ${c.doc?'<div style="font-size:11px;color:var(--text3);">'+c.doc+'</div>':''}
+            ${c.tel?'<div style="font-size:11px;color:var(--text3);">'+c.tel+'</div>':''}
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:15px;font-weight:700;color:var(--gold);">${fmt(c.total)}</div>
+            <div style="font-size:11px;color:var(--text3);">total aprovado</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;font-size:12px;color:var(--text3);margin-bottom:10px;">
+          <span>📋 ${c.pedidos.length} pedido(s)</span>
+          <span style="color:var(--green);">✓ ${aprovados} aprovado(s)</span>
+          ${pendentes>0?'<span style="color:var(--gold);">⏳ '+pendentes+' pendente(s)</span>':''}
+        </div>
+        <button class="btn btn-outline btn-sm btn-full" data-cid="${cid}" onclick="verPedidosCliente(this.dataset.cid)">Ver todos os pedidos</button>
+      </div>
+    </div>`;
+  }).join('');
+};
+
+window.verPedidosCliente = function(cidEnc) {
+  const nome = decodeURIComponent(cidEnc);
+  const pedidos = pedidosCache.filter(p=>p.cliente&&p.cliente.nome===nome);
+  const el=$('clientes-list'); if(!el) return;
+  // Show back button + pedidos
+  el.innerHTML = `<button class="btn btn-outline btn-sm" onclick="buscarCliente('')" style="margin-bottom:12px;">← Voltar</button>
+    <div style="font-size:15px;font-weight:600;margin-bottom:10px;">${nome}</div>` +
+    pedidos.map(p => orderHTML(p)).join('');
+};
+
+// ─── METAS MENSAIS ────────────────────────────────────────
+window.salvarMeta = async function() {
+  const valor = parseFloat($('meta-valor').value);
+  const mes = $('meta-mes').value;
+  if (isNaN(valor)||valor<=0) { toast('Informe um valor válido.'); return; }
+  if (!mes) { toast('Selecione o mês de referência.'); return; }
+  await setDoc(doc(db,'metas',mes), {valor, mes, criadoEm:serverTimestamp()});
+  $('meta-valor').value='';
+  toast('Meta salva!');
+  renderMetas();
+};
+
+async function renderMetas() {
+  const el=$('meta-progress'), hist=$('meta-historico'); if(!el) return;
+  // Get current month
+  const agora = new Date();
+  const mesAtual = agora.getFullYear()+'-'+(String(agora.getMonth()+1).padStart(2,'0'));
+  // Load metas
+  let metaAtual = null;
+  try {
+    const snap = await getDoc(doc(db,'metas',mesAtual));
+    if (snap.exists()) metaAtual = snap.data();
+  } catch(e){}
+
+  // Calculate current month sales
+  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1).getTime();
+  const vendidoMes = pedidosCache.filter(p=>p.status==='aprovado'&&p.criadoEm&&p.criadoEm.seconds*1000>=inicioMes).reduce((a,p)=>a+(p.total||0),0);
+
+  if (!metaAtual) {
+    el.innerHTML = `<div class="card"><div class="card-body" style="text-align:center;color:var(--text3);font-size:13px;">Nenhuma meta definida para ${mesAtual}.<br>Defina acima!</div></div>`;
+  } else {
+    const pct = Math.min(100, Math.round((vendidoMes/metaAtual.valor)*100));
+    const cor = pct>=100?'var(--green)':pct>=70?'var(--gold)':'var(--red)';
+    el.innerHTML = `<div class="card"><div class="card-body">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+        <span style="font-size:13px;font-weight:500;">Meta de ${mesAtual}</span>
+        <span style="font-size:13px;font-weight:700;color:${cor};">${pct}%</span>
+      </div>
+      <div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;margin-bottom:8px;">
+        <div style="background:${cor};height:100%;width:${pct}%;border-radius:6px;transition:width .5s;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text3);">
+        <span>Vendido: <strong style="color:var(--text);">${fmt(vendidoMes)}</strong></span>
+        <span>Meta: <strong style="color:var(--text);">${fmt(metaAtual.valor)}</strong></span>
+      </div>
+      ${pct>=100?'<div style="text-align:center;color:var(--green);font-size:13px;font-weight:600;margin-top:8px;">🎉 Meta atingida!</div>':''}
+    </div></div>`;
+  }
+
+  // History
+  try {
+    const { getDocs, collection:col2 } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const snaps = await getDocs(col2(db,'metas'));
+    const metas = snaps.docs.map(d=>d.data()).sort((a,b)=>b.mes.localeCompare(a.mes));
+    if(hist) hist.innerHTML = metas.map(m=>`<div class="card" style="margin-bottom:8px;"><div class="card-body" style="display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:13px;">${m.mes}</span>
+      <span style="font-weight:600;color:var(--gold);">${fmt(m.valor)}</span>
+      <button class="btn btn-danger btn-sm" data-mes="${m.mes}" onclick="excluirMeta(this.dataset.mes)">Excluir</button>
+    </div></div>`).join('') || '<div class="empty" style="padding:16px;"><p>Nenhuma meta cadastrada</p></div>';
+  } catch(e){}
+}
+
+window.excluirMeta = async function(mes) {
+  if (!confirm('Excluir meta de '+mes+'?')) return;
+  await deleteDoc(doc(db,'metas',mes));
+  toast('Meta excluída.');
+  renderMetas();
 };
 
 </script>

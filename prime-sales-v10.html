@@ -231,6 +231,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
       <span class="role-pill" id="role-pill">Admin</span>
+      <span id="conn-indicator" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;" title="Conectado"></span>
       <button class="logout-btn" onclick="fazerLogout()" title="Sair">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
       </button>
@@ -823,7 +824,13 @@ window.goAdmin = function(page) {
   if (page === 'relatorios') renderRelatorios();
   if (page === 'produtos') buscarProd('');
   if (page === 'inadimplencia') renderInadimplencia();
-  if (page === 'clientes') { if(typeof setClienteTab==='function') setClienteTab('lista'); buscarCliente(''); }
+  if (page === 'clientes') {
+    if(typeof setClienteTab==='function') setClienteTab('lista');
+    buscarCliente('');
+    // Ensure vendor select is populated
+    preencherSelectVendedores('cli-f-vendedor', '');
+    atualizarFiltroVendedores();
+  }
   if (page === 'meta') {
     renderMetas();
     const m=new Date();
@@ -1022,7 +1029,8 @@ window.toggleOrder = function(id) {
 
 window.aprovar = async function(id) {
   const p = pedidosCache.find(x=>x.id===id); if(!p) return;
-  await updateDoc(doc(db,'pedidos',id), {status:'aprovado', aprovadoEm:serverTimestamp()});
+  try {
+    await updateDoc(doc(db,'pedidos',id), {status:'aprovado', aprovadoEm:serverTimestamp()});
   if (p.itens) {
     for (const item of p.itens) {
       const prod = produtos.find(x=>x.id===item.prodId);
@@ -1033,7 +1041,8 @@ window.aprovar = async function(id) {
       }
     }
   }
-  toast('Pedido aprovado! Estoque atualizado.');
+    toast('Pedido aprovado! Estoque atualizado.');
+  } catch(e) { toast('Erro ao aprovar. Verifique sua conexão.'); }
 };
 
 window.rejeitar = async function(id) {
@@ -1323,17 +1332,26 @@ window.enviarPedido = async function() {
     });
   }
 
-  await addDoc(collection(db,'pedidos'),{
-    itens,total,obs,status:'pendente',
-    vendedorId:me.uid, vendedorNome:nomeSelf,
-    cliente:{nome:cliNome, doc:cliDoc, tel:cliTel},
-    criadoEm:serverTimestamp()
-  });
-  carrinho={};
-  ['cli-nome','cli-doc','cli-tel','cart-obs'].forEach(id=>{const el=$(id);if(el) el.value='';});
-  $('badge-cart').style.display='none';
-  goVend('meus');
-  toast('Pedido enviado! Aguardando aprovação.');
+  // Show saving indicator
+  const btnEnviar = document.querySelector('#page-pedido .btn-primary');
+  if (btnEnviar) { btnEnviar.textContent = 'Enviando...'; btnEnviar.disabled = true; }
+  try {
+    await addDoc(collection(db,'pedidos'),{
+      itens,total,obs,status:'pendente',
+      vendedorId:me.uid, vendedorNome:nomeSelf,
+      cliente:{nome:cliNome, doc:cliDoc, tel:cliTel},
+      criadoEm:serverTimestamp()
+    });
+    carrinho={};
+    ['cli-nome','cli-doc','cli-tel','cart-obs','cli-busca'].forEach(id=>{const el=$(id);if(el) el.value='';});
+    const pgInfo = $('cli-pagamento-info'); if(pgInfo) pgInfo.style.display='none';
+    $('badge-cart').style.display='none';
+    goVend('meus');
+    toast('Pedido enviado! Aguardando aprovação.');
+  } catch(e) {
+    toast('Erro ao enviar pedido. Verifique sua conexão e tente novamente.');
+    if (btnEnviar) { btnEnviar.textContent = 'Enviar para aprovação'; btnEnviar.disabled = false; }
+  }
 };
 
 // ─── MEUS PEDIDOS ─────────────────────────────────────────
@@ -1870,7 +1888,8 @@ window.setClienteTab = function(tab) {
     ['cli-f-nome','cli-f-doc','cli-f-tel','cli-f-end','cli-f-obs'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
     const ps = document.getElementById('cli-f-pagamento'); if(ps) ps.value = '';
     const st = document.getElementById('cli-f-status'); if(st) st.value = 'ativo';
-    preencherSelectVendedores('cli-f-vendedor', '');
+    // Always load fresh from Firestore
+    carregarVendedoresSelect();
   }
 };
 
@@ -1909,20 +1928,31 @@ window.salvarCliente = async function() {
   setClienteTab('lista');
 };
 
-window.editarCliente = function(id) {
+window.editarCliente = async function(id) {
   const c = clientesCache.find(x => x.id === id); if (!c) return;
-  document.getElementById('form-cli-titulo').textContent = 'Editar cliente';
+
+  // Switch to form tab
+  document.getElementById('clientes-tab-lista').style.display = 'none';
+  document.getElementById('clientes-tab-novo').style.display = 'block';
+  document.getElementById('ctab-lista').className = 'btn btn-outline btn-sm';
+  document.getElementById('ctab-novo').className = 'btn btn-primary btn-sm';
+
+  // Fill all fields
+  document.getElementById('form-cli-titulo').textContent = 'Editar: ' + c.nome;
   document.getElementById('cli-edit-id').value = id;
   document.getElementById('cli-f-nome').value = c.nome || '';
   document.getElementById('cli-f-doc').value = c.doc || '';
   document.getElementById('cli-f-tel').value = c.tel || '';
   document.getElementById('cli-f-end').value = c.endereco || '';
   document.getElementById('cli-f-obs').value = c.obs || '';
-  const ps = document.getElementById('cli-f-pagamento'); if(ps) ps.value = c.pagamento || '';
-  const st = document.getElementById('cli-f-status'); if(st) st.value = c.status || 'ativo';
-  // Populate vendedor select then set value
-  preencherSelectVendedores('cli-f-vendedor', c.vendedorId || '');
-  setClienteTab('novo');
+  const ps = document.getElementById('cli-f-pagamento');
+  if (ps) ps.value = c.pagamento || '';
+  const st = document.getElementById('cli-f-status');
+  if (st) st.value = c.status || 'ativo';
+
+  // Load vendors and pre-select correct one
+  await carregarVendedoresSelect(c.vendedorId || '');
+  window.scrollTo(0, 0);
 };
 
 window.excluirCliente = async function(id) {
@@ -2067,12 +2097,15 @@ window.toggleVendedor = async function(uid) {
 // ─── HELPER: PREENCHER SELECT DE VENDEDORES ──────────────
 function preencherSelectVendedores(selectId, valorAtual) {
   const sel = document.getElementById(selectId); if (!sel) return;
-  const vendedores = window._vendedoresMap ? Object.values(window._vendedoresMap) : [];
+  const vendedores = window._vendedoresMap ? Object.values(window._vendedoresMap).filter(v => !v.bloqueado) : [];
   sel.innerHTML = '<option value="">Sem vendedor (carteira geral)</option>';
+  if (!vendedores.length) {
+    sel.innerHTML += '<option disabled style="color:var(--text3);">Carregando vendedores...</option>';
+  }
   vendedores.forEach(v => {
     const opt = document.createElement('option');
     opt.value = v.id;
-    opt.textContent = v.nome;
+    opt.textContent = v.nome + (v.email ? ' (' + v.email + ')' : '');
     if (v.id === valorAtual) opt.selected = true;
     sel.appendChild(opt);
   });
@@ -2090,6 +2123,51 @@ function atualizarFiltroVendedores() {
     opt.textContent = v.nome;
     sel.appendChild(opt);
   });
+}
+
+
+// ─── CARREGAR VENDEDORES DIRETO DO FIRESTORE ─────────────────
+async function carregarVendedoresSelect() {
+  try {
+    const snap = await getDocs(collection(db, 'users'));
+    const vendedores = snap.docs.map(d => ({id:d.id,...d.data()})).filter(u => u.role === 'vendedor' && !u.bloqueado);
+    window._vendedoresMap = {};
+    vendedores.forEach(v => { window._vendedoresMap[v.id] = v; });
+    atualizarFiltroVendedores();
+  } catch(e) { console.error('Erro ao carregar vendedores:', e); }
+}
+
+
+// ─── CONNECTION MONITOR ──────────────────────────────────────
+window.addEventListener('online', () => {
+  const el = document.getElementById('conn-indicator');
+  if (el) { el.style.background = 'var(--green)'; el.title = 'Conectado'; }
+});
+window.addEventListener('offline', () => {
+  const el = document.getElementById('conn-indicator');
+  if (el) { el.style.background = 'var(--red)'; el.title = 'Sem conexao'; }
+  toast('Sem conexao com internet!');
+});
+
+
+// ─── CARREGAR SELECT COM VALOR PRÉ-SELECIONADO ───────────────
+async function carregarVendedoresSelectComValor(selectId, valorAtual) {
+  try {
+    const snap = await getDocs(collection(db, 'users'));
+    const vendedores = snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role==='vendedor' && !u.bloqueado);
+    window._vendedoresMap = window._vendedoresMap || {};
+    vendedores.forEach(v => { window._vendedoresMap[v.id] = v; });
+    const sel = document.getElementById(selectId); if(!sel) return;
+    sel.innerHTML = '<option value="">Sem vendedor (carteira geral)</option>';
+    vendedores.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = v.nome;
+      if (v.id === valorAtual) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    atualizarFiltroVendedores();
+  } catch(e) { console.error('Erro ao carregar vendedores:', e); }
 }
 
 </script>

@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prime Sales">
+<title>Prime Sales</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --gold:#F5A800;--gold-dark:#c98a00;--gold-light:rgba(245,168,0,0.12);
+  --bg:#111;--bg2:#1a1a1a;--bg3:#222;--bg4:#2a2a2a;--bg5:#333;
+  --border:#2e2e2e;--border2:#3a3a3a;
+  --text:#f0f0f0;--text2:#aaa;--text3:#666;
+  --red:#e03e3e;--red-bg:rgba(224,62,62,0.12);
+  --green:#4caf7d;--green-bg:rgba(76,175,125,0.12);
+  --r:12px;--r2:8px;--r3:16px;
+  --shadow:0 1px 3px rgba(0,0,0,0.4);
+  --shadow2:0 4px 20px rgba(0,0,0,0.5);
+  font-family:'Inter',sans-serif;
+}
+body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
+#splash{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:0;transition:opacity .5s}
+#splash.hide{opacity:0;pointer-events:none}
+.splash-icon{width:88px;height:88px;background:var(--gold);border-radius:24px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;box-shadow:0 8px 32px rgba(245,168,0,0.35)}
+.splash-title{font-size:24px;font-weight:700;letter-spacing:1px;color:var(--text)}
+.splash-sub{font-size:12px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:4px}
+.splash-tag{font-size:11px;color:var(--text3);margin-top:6px;font-style:italic}
+.splash-spinner{width:28px;height:28px;border:2px solid var(--border2);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;margin-top:32px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#auth{display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--bg);padding:20px}
+.auth-card{background:var(--bg4);border:1px solid var(--border2);border-radius:20px;padding:32px 28px;width:100%;max-width:380px;box-shadow:var(--shadow2)}
+.auth-logo{text-align:center;margin-bottom:28px}
+.auth-logo h1{font-size:20px;font-weight:700;color:var(--text)}
+.auth-logo p{font-size:12px;color:var(--text3);margin-top:3px}
+.err{background:var(--red-bg);color:var(--red);border-radius:var(--r2);padding:10px 14px;font-size:13px;margin-bottom:12px;display:none}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:11px 14px;border:1.5px solid var(--border2);border-radius:var(--r2);font-family:'Inter',sans-serif;font-size:14px;color:var(--text);background:var(--bg4)}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(245,168,0,.12)}
+.field textarea{resize:vertical;min-height:68px}
+.field input[type=checkbox]{width:auto;padding:0}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 18px;border-radius:var(--r2);font-family:'Inter',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .2s}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--gold);color:#111}
+.btn-primary:hover{background:var(--gold-dark)}
+.btn-outline{background:transparent;color:var(--text2);border:1.5px solid var(--border2)}
+.btn-outline:hover{border-color:var(--text3);color:var(--text)}
+.btn-full{width:100%}
+.btn-sm{padding:7px 12px;font-size:12px}
+#app{display:none;flex-direction:column;min-height:100vh}
+.topbar{background:var(--bg3);border-bottom:1px solid var(--border);padding:0 16px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-brand{display:flex;align-items:center;gap:10px}
+.topbar-name{font-size:16px;font-weight:700;color:var(--text)}
+.role-pill{font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em}
+.role-pill.admin{background:#1e2a3a;color:#7eb8f7}
+.role-pill.vendedor{background:var(--gold-light);color:var(--gold)}
+.logout-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--border2);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text3);transition:all .2s}
+.logout-btn:hover{color:var(--text);border-color:var(--text3)}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--bg3);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.nav-item{flex:1;padding:10px 4px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:var(--text3);font-size:10px;font-weight:500;transition:color .15s}
+.nav-item.active{color:var(--gold)}
+.main{flex:1;padding:14px 14px 80px;max-width:600px;margin:0 auto;width:100%}
+.page{display:none}
+.page.active{display:block}
+.card{background:var(--bg4);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.card-header{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.card-header h3{font-size:14px;font-weight:600}
+.card-body{padding:14px 16px}
+.section-title{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.stat{background:var(--bg4);border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.stat.gold{background:var(--gold);border-color:var(--gold)}
+.stat.gold .stat-label{color:rgba(0,0,0,.6)}
+.stat.gold .stat-val{color:#111}
+.stat-label{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.stat-val{font-size:26px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.search-wrap{position:relative;margin-bottom:10px}
+.search-input{width:100%;padding:10px 12px 10px 34px;border:1.5px solid var(--border2);border-radius:var(--r2);background:var(--bg4);color:var(--text);font-size:13px;outline:none;font-family:'Inter',sans-serif}
+.search-input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(245,168,0,.12)}
+.toast{position:fixed;bottom:76px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--bg5);color:var(--text);padding:10px 20px;border-radius:100px;font-size:13px;font-weight:500;opacity:0;transition:all .3s;z-index:300}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.empty{text-align:center;padding:36px 16px;color:var(--text3)}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal.open{display:flex}
+.modal-box{background:var(--bg4);border:1px solid var(--border2);border-radius:20px;padding:24px;width:100%;max-width:380px;box-shadow:var(--shadow2)}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.modal-header h3{font-size:16px;font-weight:600}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3);line-height:1;padding:0}
+@media(min-width:600px){.main{padding:20px 24px 80px}.stats-grid{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+
+<div id="splash">
+  <div class="splash-icon">⚙️</div>
+  <div class="splash-title">PRIME SALES</div>
+  <div class="splash-sub">Representações</div>
+  <div class="splash-tag">Peças de Qualidade. Parceria que Move.</div>
+  <div class="splash-spinner"></div>
+</div>
+
+<div id="auth" style="display:none;flex">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div style="width:80px;height:80px;background:var(--gold);border-radius:18px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:40px">⚙️</div>
+      <h1>Prime Sales</h1>
+      <p>Sistema de pedidos</p>
+    </div>
+    <div class="err" id="auth-err"></div>
+    <div class="field"><label>E-mail</label><input type="email" id="inp-email" placeholder="seu@email.com" autocomplete="email"></div>
+    <div class="field"><label>Senha</label><input type="password" id="inp-senha" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="btn btn-primary btn-full" id="btn-login" onclick="window.fazerLogin()" style="margin-top:4px;">Entrar</button>
+    <p style="font-size:12px;color:var(--text3);text-align:center;margin-top:14px;">Primeiro acesso? Peça seu login ao administrador.</p>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-brand">
+      <span class="topbar-name">Prime Sales</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="role-pill" id="role-pill">Admin</span>
+      <button class="logout-btn" onclick="window.fazerLogout()" title="Sair">🚪</button>
+    </div>
+  </div>
+
+  <div class="main" id="main">
+    <div class="page active" id="page-resumo">
+      <div class="stats-grid">
+        <div class="stat gold">
+          <div class="stat-label">Pendentes</div>
+          <div class="stat-val" id="st-pend">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Aprovados</div>
+          <div class="stat-val" id="st-aprov">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Produtos</div>
+          <div class="stat-val" id="st-prod">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Vendedores</div>
+          <div class="stat-val" id="st-vend">0</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <p style="text-align:center;color:var(--text2);">✅ Sistema configurado com sucesso!</p>
+          <p style="text-align:center;color:var(--text3);font-size:12px;margin-top:10px;">Conecte seu Firebase para começar</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-pedidos">
+      <div class="card"><div class="card-body"><p style="color:var(--text3);">Pedidos em desenvolvimento</p></div></div>
+    </div>
+
+    <div class="page" id="page-produtos">
+      <div class="card">
+        <div class="card-header"><h3>Novo produto</h3></div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="field"><label>Número da peça</label><input type="text" placeholder="Ex: 71884"></div>
+            <div class="field"><label>Marca</label><input type="text" placeholder="Ex: Riffel"></div>
+          </div>
+          <div class="field"><label>Nome</label><input type="text" placeholder="Nome do produto"></div>
+          <div class="form-row">
+            <div class="field"><label>Preço (R$)</label><input type="number" placeholder="0,00" step="0.01" min="0"></div>
+            <div class="field"><label>Estoque</label><input type="number" placeholder="0" min="0"></div>
+          </div>
+          <button class="btn btn-primary btn-full">Adicionar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-vendedores">
+      <div class="card">
+        <div class="card-header"><h3>Cadastrar vendedor</h3></div>
+        <div class="card-body">
+          <div class="field"><label>Nome</label><input type="text" placeholder="Nome completo"></div>
+          <div class="field"><label>E-mail</label><input type="email" placeholder="email@exemplo.com"></div>
+          <div class="field"><label>Senha</label><input type="password" placeholder="Mínimo 6 caracteres"></div>
+          <button class="btn btn-primary btn-full">Criar acesso</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-clientes">
+      <div class="card">
+        <div class="card-header"><h3>Novo cliente</h3></div>
+        <div class="card-body">
+          <div class="field"><label>Nome / Razão social</label><input type="text" placeholder="Ex: Auto Peças Silva Ltda"></div>
+          <div class="form-row">
+            <div class="field"><label>CNPJ / CPF</label><input type="text" placeholder="00.000.000/0001-00"></div>
+            <div class="field"><label>Telefone</label><input type="text" placeholder="(00) 00000-0000"></div>
+          </div>
+          <button class="btn btn-primary btn-full">Salvar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-relatorios">
+      <div class="card"><div class="card-body"><p style="color:var(--text3);">Relatórios em desenvolvimento</p></div></div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav" id="nav-admin">
+    <div class="nav-item active" id="na-resumo" onclick="window.goAdmin('resumo')">📊 Resumo</div>
+    <div class="nav-item" id="na-pedidos" onclick="window.goAdmin('pedidos')">📋 Pedidos</div>
+    <div class="nav-item" id="na-produtos" onclick="window.goAdmin('produtos')">📦 Produtos</div>
+    <div class="nav-item" id="na-vendedores" onclick="window.goAdmin('vendedores')">👥 Vendedores</div>
+    <div class="nav-item" id="na-clientes" onclick="window.goAdmin('clientes')">👤 Clientes</div>
+    <div class="nav-item" id="na-relatorios" onclick="window.goAdmin('relatorios')">📈 Relatórios</div>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// ⚠️ CONFIGURAÇÃO OBRIGATÓRIA
+// Copie seu config do Firebase Console: Projeto > Configurações > Sua aplicação
+// Substitua os valores abaixo com suas credenciais reais
+const FIREBASE_CONFIG = window.FIREBASE_CONFIG || {
+  apiKey: "COLOQUE_SUA_API_KEY_AQUI",
+  authDomain: "seu-projeto.firebaseapp.com",
+  projectId: "seu-projeto",
+  storageBucket: "seu-projeto.firebasestorage.app",
+  messagingSenderId: "seu-messaging-id",
+  appId: "seu-app-id"
+};
+
+if (FIREBASE_CONFIG.apiKey === "COLOQUE_SUA_API_KEY_AQUI") {
+  console.error("⚠️ Configuração do Firebase não encontrada!");
+  document.body.innerHTML = `
+    <div style="padding:40px;color:#e03e3e;font-family:sans-serif;max-width:600px;margin:0 auto;">
+      <h2>⚠️ Configuração Obrigatória</h2>
+      <p style="margin:20px 0;">
+        Por favor, configure suas credenciais do Firebase antes de usar esta aplicação.
+      </p>
+      <h3>Como configurar:</h3>
+      <ol style="margin:20px 0;padding-left:20px;">
+        <li>Acesse <a href="https://console.firebase.google.com" target="_blank" style="color:#F5A800;">Firebase Console</a></li>
+        <li>Selecione seu projeto</li>
+        <li>Vá em Configurações do projeto > Sua aplicação</li>
+        <li>Copie o objeto de configuração</li>
+        <li>Execute no console do navegador:
+          <code style="display:block;background:#222;padding:10px;margin:10px 0;border-radius:4px;overflow-x:auto;font-size:12px;">
+window.FIREBASE_CONFIG = {/* seu config aqui */}; location.reload();
+          </code>
+        </li>
+      </ol>
+      <p style="font-size:12px;color:#aaa;">Ou edite o arquivo index.html e substitua FIREBASE_CONFIG.</p>
+    </div>
+  `;
+  throw new Error("Firebase configuration missing");
+}
+
+const fbApp = initializeApp(FIREBASE_CONFIG);
+const auth = getAuth(fbApp);
+const db = getFirestore(fbApp);
+
+const $ = id => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function showErr(id, msg) {
+  const e = $(id);
+  if (e) { e.textContent = msg; e.style.display = 'block'; }
+}
+
+window.fazerLogin = async function() {
+  const email = $('inp-email')?.value?.trim();
+  const senha = $('inp-senha')?.value;
+  
+  if (!email || !senha) {
+    showErr('auth-err', 'Preencha e-mail e senha');
+    return;
+  }
+  
+  const btn = $('btn-login');
+  if (!btn) return;
+  
+  btn.textContent = 'Entrando...';
+  btn.disabled = true;
+  
+  try {
+    await signInWithEmailAndPassword(auth, email, senha);
+  } catch(e) {
+    btn.textContent = 'Entrar';
+    btn.disabled = false;
+    showErr('auth-err', 'E-mail ou senha incorretos');
+    console.error('Erro ao entrar:', e.code);
+  }
+};
+
+window.fazerLogout = async function() {
+  try {
+    await signOut(auth);
+  } catch(e) {
+    console.error('Erro ao sair:', e);
+  }
+};
+
+window.goAdmin = function(page) {
+  document.querySelectorAll('#nav-admin .nav-item').forEach(n => n.classList.remove('active'));
+  const ni = $('na-' + page);
+  if (ni) ni.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pg = $('page-' + page);
+  if (pg) pg.classList.add('active');
+  window.scrollTo(0, 0);
+};
+
+$('inp-senha')?.addEventListener('keydown', e => {
+  if(e.key === 'Enter') window.fazerLogin();
+});
+
+const splashTimeout = setTimeout(() => {
+  const splash = $('splash');
+  if (splash) {
+    splash.innerHTML += '<div style="color:var(--red);font-size:12px;margin-top:20px;text-align:center;padding:0 24px;">Erro ao conectar. Verifique a internet.</div>';
+  }
+}, 9000);
+
+onAuthStateChanged(auth, async user => {
+  clearTimeout(splashTimeout);
+  const splash = $('splash');
+  if (splash) {
+    splash.classList.add('hide');
+    setTimeout(() => { splash.style.display = 'none'; }, 500);
+  }
+
+  if (!user) {
+    $('auth').style.display = 'flex';
+    $('app').style.display = 'none';
+    return;
+  }
+
+  $('auth').style.display = 'none';
+  $('app').style.display = 'flex';
+  toast('✅ Conectado com sucesso!');
+});
+
+console.log('✅ Prime Sales iniciado');
+</script>
+</body>
+</html>

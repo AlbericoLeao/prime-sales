@@ -135,8 +135,8 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
       </div>
       <div class="card">
         <div class="card-body">
-          <p style="text-align:center;color:var(--text2);">✅ Sistema configurado com sucesso!</p>
-          <p style="text-align:center;color:var(--text3);font-size:12px;margin-top:10px;">Conecte seu Firebase para começar</p>
+          <p style="text-align:center;color:var(--text2);">✅ Firebase conectado com sucesso!</p>
+          <p style="text-align:center;color:var(--text3);font-size:12px;margin-top:10px;">Sistema pronto para usar</p>
         </div>
       </div>
     </div>
@@ -206,47 +206,37 @@ body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
 
 <div class="toast" id="toast"></div>
 
+<!-- Script de configuração Firebase - carrega automaticamente -->
+<script src="firebase-config.js"></script>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-const FIREBASE_CONFIG = window.FIREBASE_CONFIG || {
-  apiKey: "COLOQUE_SUA_API_KEY_AQUI",
-  authDomain: "seu-projeto.firebaseapp.com",
-  projectId: "seu-projeto",
-  storageBucket: "seu-projeto.firebasestorage.app",
-  messagingSenderId: "seu-messaging-id",
-  appId: "seu-app-id"
-};
-
-if (FIREBASE_CONFIG.apiKey === "COLOQUE_SUA_API_KEY_AQUI") {
-  console.error("⚠️ Configuração do Firebase não encontrada!");
-  document.body.innerHTML = `
-    <div style="padding:40px;color:#e03e3e;font-family:sans-serif;max-width:600px;margin:0 auto;">
-      <h2>⚠️ Configuração Obrigatória</h2>
-      <p style="margin:20px 0;color:#aaa;">
-        Por favor, configure suas credenciais do Firebase antes de usar.
-      </p>
-      <h3 style="margin-top:30px;">📚 Como configurar:</h3>
-      <ol style="margin:20px 0;padding-left:20px;color:#aaa;">
-        <li style="margin:10px 0;">Acesse <a href="https://console.firebase.google.com" target="_blank" style="color:#F5A800;">Firebase Console</a></li>
-        <li style="margin:10px 0;">Selecione seu projeto</li>
-        <li style="margin:10px 0;">Vá em: Configurações do projeto > Sua aplicação</li>
-        <li style="margin:10px 0;">Copie o objeto de configuração</li>
-        <li style="margin:10px 0;">Abra o console (F12) e execute:
-          <pre style="background:#222;padding:10px;margin:10px 0;border-radius:4px;overflow-x:auto;font-size:12px;color:#F5A800;">window.FIREBASE_CONFIG = {/* config aqui */}; location.reload();</pre>
-        </li>
-      </ol>
-      <p style="font-size:12px;color:#666;margin-top:30px;">💡 Suas credenciais serão mantidas apenas no navegador.</p>
-    </div>
-  `;
-  throw new Error("Firebase configuration missing");
+// Aguarda a configuração Firebase ser carregada
+async function aguardarConfig() {
+  let tentativas = 0;
+  while (!window.FIREBASE_CONFIG && tentativas < 50) {
+    tentativas++;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return window.FIREBASE_CONFIG;
 }
 
-const fbApp = initializeApp(FIREBASE_CONFIG);
+const fbConfig = await aguardarConfig();
+
+if (!fbConfig) {
+  console.error("❌ Configuração Firebase não carregada!");
+  document.body.innerHTML = '<div style="padding:40px;text-align:center;color:red;font-family:sans-serif;"><h2>❌ Erro de Configuração</h2><p>Falha ao carregar Firebase. Recarregue a página.</p></div>';
+  throw new Error("Firebase config missing");
+}
+
+const fbApp = initializeApp(fbConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
+
+console.log('✅ Firebase inicializado com sucesso!');
 
 const $ = id => document.getElementById(id);
 
@@ -333,10 +323,8 @@ onAuthStateChanged(auth, async user => {
 
   $('auth').style.display = 'none';
   $('app').style.display = 'flex';
-  toast('✅ Conectado!');
+  toast('✅ Conectado com sucesso!');
 });
-
-console.log('✅ Prime Sales iniciado - Configure Firebase para continuar');
 </script>
 </body>
 </html>

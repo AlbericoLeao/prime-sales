@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prime Sales">
+<title>Prime Sales</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --gold:#F5A800;--gold-dark:#c98a00;--gold-light:rgba(245,168,0,0.12);
+  --bg:#111;--bg2:#1a1a1a;--bg3:#222;--bg4:#2a2a2a;--bg5:#333;
+  --border:#2e2e2e;--border2:#3a3a3a;
+  --text:#f0f0f0;--text2:#aaa;--text3:#666;
+  --red:#e03e3e;--red-bg:rgba(224,62,62,0.12);
+  --green:#4caf7d;--green-bg:rgba(76,175,125,0.12);
+  --r:12px;--r2:8px;--r3:16px;
+  --shadow:0 1px 3px rgba(0,0,0,0.4);
+  --shadow2:0 4px 20px rgba(0,0,0,0.5);
+  font-family:'Inter',sans-serif;
+}
+body{background:var(--bg);color:var(--text);min-height:100vh;font-size:15px}
+#splash{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:0;transition:opacity .5s}
+#splash.hide{opacity:0;pointer-events:none}
+.splash-icon{width:88px;height:88px;background:var(--gold);border-radius:24px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;box-shadow:0 8px 32px rgba(245,168,0,0.35)}
+.splash-title{font-size:24px;font-weight:700;letter-spacing:1px;color:var(--text)}
+.splash-sub{font-size:12px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:4px}
+.splash-tag{font-size:11px;color:var(--text3);margin-top:6px;font-style:italic}
+.splash-spinner{width:28px;height:28px;border:2px solid var(--border2);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;margin-top:32px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#auth{display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--bg);padding:20px}
+.auth-card{background:var(--bg4);border:1px solid var(--border2);border-radius:20px;padding:32px 28px;width:100%;max-width:380px;box-shadow:var(--shadow2)}
+.auth-logo{text-align:center;margin-bottom:28px}
+.auth-logo h1{font-size:20px;font-weight:700;color:var(--text)}
+.auth-logo p{font-size:12px;color:var(--text3);margin-top:3px}
+.err{background:var(--red-bg);color:var(--red);border-radius:var(--r2);padding:10px 14px;font-size:13px;margin-bottom:12px;display:none}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:11px 14px;border:1.5px solid var(--border2);border-radius:var(--r2);font-family:'Inter',sans-serif;font-size:14px;color:var(--text);background:var(--bg3);outline:none;transition:border-color .15s}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(245,168,0,.12)}
+.field textarea{resize:vertical;min-height:68px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 18px;border-radius:var(--r2);font-family:'Inter',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--gold);color:#111}
+.btn-primary:hover{background:var(--gold-dark)}
+.btn-outline{background:transparent;color:var(--text2);border:1.5px solid var(--border2)}
+.btn-outline:hover{border-color:var(--text3);color:var(--text)}
+.btn-danger{background:var(--red-bg);color:var(--red)}
+.btn-success{background:var(--green-bg);color:var(--green)}
+.btn-full{width:100%}
+.btn-sm{padding:7px 12px;font-size:12px}
+#app{display:none;flex-direction:column;min-height:100vh}
+.topbar{background:var(--bg3);border-bottom:1px solid var(--border);padding:0 16px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-brand{display:flex;align-items:center;gap:10px}
+.topbar-name{font-size:16px;font-weight:700;color:var(--text)}
+.role-pill{font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em}
+.role-pill.admin{background:#1e2a3a;color:#7eb8f7}
+.role-pill.vendedor{background:var(--gold-light);color:var(--gold)}
+.logout-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--border2);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text3)}
+.logout-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--bg3);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.nav-item{flex:1;padding:10px 4px 8px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:var(--text3);font-size:10px;font-weight:500;transition:color .15s;position:relative}
+.nav-item.active{color:var(--gold)}
+.nav-item svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nav-badge{position:absolute;top:5px;right:calc(50% - 20px);background:var(--red);color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:20px;display:none;align-items:center;justify-content:center;padding:0 3px}
+.main{flex:1;padding:14px 14px 80px;max-width:600px;margin:0 auto;width:100%}
+.page{display:none}
+.page.active{display:block}
+.card{background:var(--bg4);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.card-header{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.card-header h3{font-size:14px;font-weight:600}
+.card-body{padding:14px 16px}
+.section-title{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 10px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.stat{background:var(--bg4);border:1px solid var(--border);border-radius:var(--r);padding:14px;cursor:default}
+.stat.gold{background:var(--gold);border-color:var(--gold)}
+.stat.gold .stat-label{color:rgba(0,0,0,.6)}
+.stat.gold .stat-val{color:#111}
+.stat-label{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.stat-val{font-size:26px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.stat-sub{font-size:10px;color:var(--text3);margin-top:3px}
+.order-card{background:var(--bg4);border:1px solid var(--border);border-left:4px solid var(--border2);border-radius:var(--r);margin-bottom:8px;overflow:hidden}
+.order-card.pendente{border-left-color:var(--gold)}
+.order-card.aprovado{border-left-color:var(--green)}
+.order-card.rejeitado{border-left-color:var(--red)}
+.order-head{padding:12px 14px;display:flex;align-items:flex-start;justify-content:space-between;cursor:pointer}
+.order-id{font-size:13px;font-weight:600;font-family:monospace;letter-spacing:.05em}
+.order-meta{font-size:11px;color:var(--text3);margin-top:2px}
+.order-body{padding:0 14px 14px;display:none}
+.order-body.open{display:block}
+.badge{font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.04em}
+.badge.pendente{background:rgba(245,168,0,.15);color:var(--gold)}
+.badge.aprovado{background:var(--green-bg);color:var(--green)}
+.badge.rejeitado{background:var(--red-bg);color:var(--red)}
+.badge.bloqueado{background:var(--red-bg);color:var(--red)}
+.badge.ativo{background:var(--green-bg);color:var(--green)}
+.prod-item{display:flex;align-items:flex-start;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border);gap:10px}
+.prod-item:last-child{border-bottom:none}
+.prod-name{font-size:13px;font-weight:500;line-height:1.4}
+.prod-ref{font-size:11px;color:var(--gold);font-weight:600;margin-top:1px}
+.prod-meta{font-size:11px;color:var(--text3);margin-top:2px}
+.prod-price{font-size:13px;font-weight:700;color:var(--gold);white-space:nowrap}
+.empty{text-align:center;padding:36px 16px;color:var(--text3)}
+.empty svg{width:44px;height:44px;stroke:var(--border2);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto}
+.search-wrap{display:flex;align-items:center;background:var(--bg4);border:1.5px solid var(--border2);border-radius:var(--r2);padding:0 12px;margin-bottom:12px}
+.search-wrap svg{width:16px;height:16px;stroke:var(--text3);fill:none;stroke-width:2;flex-shrink:0}
+.search-input{flex:1;border:none;background:transparent;color:var(--text);font-size:14px;padding:10px 10px;outline:none;font-family:'Inter',sans-serif}
+.toast{position:fixed;bottom:76px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--bg5);color:var(--text);padding:10px 20px;border-radius:100px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:300;box-shadow:var(--shadow2)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* PERMISSION DENIED */
+.perm-denied{background:var(--red-bg);border:1px solid var(--red);border-radius:var(--r);padding:16px;text-align:center;color:var(--red);font-size:13px;margin:20px 0;display:none}
+@media(min-width:600px){.main{padding:20px 24px 80px}.stats-grid{grid-template-columns:repeat(4,1fr)}}
+</style>
+</head>
+<body>
+
+<!-- SPLASH -->
+<div id="splash">
+  <div class="splash-icon">
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4M9 2v4m6-4v4"/></svg>
+  </div>
+  <div class="splash-title">PRIME SALES</div>
+  <div class="splash-sub">Representações</div>
+  <div class="splash-tag">Peças de Qualidade. Parceria que Move.</div>
+  <div class="splash-spinner"></div>
+</div>
+
+<!-- AUTH -->
+<div id="auth">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div style="width:80px;height:80px;background:var(--gold);border-radius:18px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4M9 2v4m6-4v4"/></svg>
+      </div>
+      <h1>Prime Sales</h1>
+      <p>Sistema de pedidos</p>
+    </div>
+    <div class="err" id="auth-err"></div>
+    <div class="field"><label>E-mail</label><input type="email" id="inp-email" placeholder="seu@email.com" autocomplete="email"></div>
+    <div class="field"><label>Senha</label><input type="password" id="inp-senha" placeholder="••••••••" autocomplete="current-password"></div>
+    <button class="btn btn-primary btn-full" id="btn-login" onclick="fazerLogin()">Entrar</button>
+    <p style="font-size:12px;color:var(--text3);text-align:center;margin-top:14px;">Primeiro acesso? Solicite ao administrador.</p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-brand">
+      <div style="width:32px;height:32px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4M9 2v4m6-4v4"/></svg>
+      </div>
+      <span class="topbar-name">Prime Sales</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="role-pill admin" id="role-pill">Admin</span>
+      <span id="conn-dot" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;" title="Conectado"></span>
+      <button class="logout-btn" onclick="fazerLogout()" title="Sair">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main" id="main">
+    <!-- ══════════════════════════════════════
+         MÓDULO: RESUMO / DASHBOARD
+    ══════════════════════════════════════ -->
+    <div class="page active" id="page-resumo">
+      <div class="stats-grid">
+        <div class="stat gold" onclick="goAdmin('pedidos')" style="cursor:pointer">
+          <div class="stat-label">Pendentes</div>
+          <div class="stat-val" id="st-pend">0</div>
+        </div>
+        <div class="stat" onclick="goAdmin('pedidos')" style="cursor:pointer">
+          <div class="stat-label">Aprovados</div>
+          <div class="stat-val" id="st-aprov">0</div>
+        </div>
+        <div class="stat" onclick="goAdmin('produtos')" style="cursor:pointer">
+          <div class="stat-label">Produtos</div>
+          <div class="stat-val" id="st-prod">0</div>
+        </div>
+        <div class="stat" onclick="goAdmin('vendedores')" style="cursor:pointer">
+          <div class="stat-label">Vendedores</div>
+          <div class="stat-val" id="st-vend">0</div>
+        </div>
+      </div>
+      <div id="resumo-financeiro" class="stats-grid"></div>
+      <div class="section-title">Aguardando aprovação</div>
+      <div id="resumo-list"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════
+         MÓDULO: PEDIDOS
+    ══════════════════════════════════════ -->
+    <div class="page" id="page-pedidos">
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <button id="pf-todos" class="btn btn-primary btn-sm" onclick="filtrarPedidos('todos')">Todos</button>
+        <button id="pf-pendente" class="btn btn-outline btn-sm" onclick="filtrarPedidos('pendente')">Pendentes</button>
+        <button id="pf-aprovado" class="btn btn-outline btn-sm" onclick="filtrarPedidos('aprovado')">Aprovados</button>
+        <button id="pf-rejeitado" class="btn btn-outline btn-sm" onclick="filtrarPedidos('rejeitado')">Rejeitados</button>
+      </div>
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="search-input" id="busca-pedidos" placeholder="Buscar cliente, vendedor ou #ID..." oninput="filtrarPedidos(pedFiltroAtual, this.value)">
+      </div>
+      <div id="pedidos-list"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════
+         MÓDULO: VENDEDORES (ADMIN ONLY)
+    ══════════════════════════════════════ -->
+    <div class="page" id="page-vendedores">
+      <div class="perm-denied" id="perm-vendedores">Acesso restrito a administradores.</div>
+      <div id="vendedores-content">
+        <div class="card">
+          <div class="card-header"><h3>Criar acesso de vendedor</h3></div>
+          <div class="card-body">
+            <div class="field"><label>Nome completo</label><input type="text" id="vnd-nome" placeholder="Ex: João Silva"></div>
+            <div class="field"><label>E-mail</label><input type="email" id="vnd-email" placeholder="joao@email.com"></div>
+            <div class="field"><label>Senha inicial</label><input type="password" id="vnd-senha" placeholder="mínimo 6 caracteres" autocomplete="new-password"></div>
+            <button class="btn btn-primary btn-full" onclick="criarVendedor()">Criar acesso</button>
+          </div>
+        </div>
+        <div class="section-title">Vendedores ativos</div>
+        <div id="vendedores-list"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════
+         MÓDULO: PRODUTOS (ADMIN ONLY)
+    ══════════════════════════════════════ -->
+    <div class="page" id="page-produtos">
+      <div class="perm-denied" id="perm-produtos">Acesso restrito a administradores.</div>
+      <div id="produtos-content">
+        <div class="section-title">Produtos cadastrados</div>
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" class="search-input" id="busca-prod" placeholder="Buscar produto..." oninput="buscarProd(this.value)">
+        </div>
+        <div id="produtos-list"></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════
+         MÓDULO: MEUS PEDIDOS (VENDEDOR)
+    ══════════════════════════════════════ -->
+    <div class="page" id="page-meus">
+      <div id="meus-list"></div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM NAV - ADMIN -->
+  <div class="bottom-nav" id="nav-admin">
+    <div class="nav-item active" id="na-resumo" onclick="goAdmin('resumo')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Resumo
+    </div>
+    <div class="nav-item" id="na-pedidos" onclick="goAdmin('pedidos')">
+      <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>Pedidos
+      <div class="nav-badge" id="badge-pend"></div>
+    </div>
+    <div class="nav-item" id="na-produtos" onclick="goAdmin('produtos')">
+      <svg viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4M9 2v4m6-4v4"/></svg>Produtos
+    </div>
+    <div class="nav-item" id="na-vendedores" onclick="goAdmin('vendedores')">
+      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Vendedores
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV - VENDEDOR -->
+  <div class="bottom-nav" id="nav-vend" style="display:none">
+    <div class="nav-item active" id="nv-inicio" onclick="goVend('inicio')">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Início
+    </div>
+    <div class="nav-item" id="nv-meus" onclick="goVend('meus')">
+      <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2"/></svg>Meus Pedidos
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ════════════════════════════════════════════════════════════
+// MÓDULO: FIREBASE CONFIG (inline — sem dependência externa)
+// ════════════════════════════════════════════════════════════
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, updateDoc, deleteDoc, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDnT-_A6WZpX1AaTr5AFU9alOn6e5CpRuM",
+  authDomain: "prime-sales-ee959.firebaseapp.com",
+  projectId: "prime-sales-ee959",
+  storageBucket: "prime-sales-ee959.appspot.com",
+  messagingSenderId: "178257583901",
+  appId: "1:178257583901:web:prime-sales"
+};
+
+const app = initializeApp(FIREBASE_CONFIG);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: ESTADO GLOBAL
+// ════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const fmt = v => 'R$ ' + Number(v||0).toFixed(2).replace('.', ',');
+
+let me           = null;
+let myRole       = null;   // 'admin' | 'vendedor'
+let pedidosCache = [];
+let produtos     = [];
+let vendedoresCache = [];  // array of user docs
+let unsubs       = [];
+let pedFiltroAtual = 'todos';
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: PERMISSÕES (centralizado)
+// ════════════════════════════════════════════════════════════
+const isAdmin    = () => myRole === 'admin';
+const isVendedor = () => myRole === 'vendedor';
+
+function requireAdmin(pageId) {
+  const permEl = document.getElementById('perm-' + pageId);
+  const contEl = document.getElementById(pageId + '-content');
+  if (!isAdmin()) {
+    if (permEl) permEl.style.display = 'block';
+    if (contEl) contEl.style.display = 'none';
+    return false;
+  }
+  if (permEl) permEl.style.display = 'none';
+  if (contEl) contEl.style.display = 'block';
+  return true;
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: UTILITÁRIOS
+// ════════════════════════════════════════════════════════════
+window.toast = function(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+};
+
+function showErr(id, msg) {
+  const e = $(id);
+  if (e) { e.textContent = msg; e.style.display = 'block'; }
+}
+
+window.toggleOrder = function(id) {
+  const body = document.querySelector('#ob-' + id + ' .order-body');
+  if (body) body.classList.toggle('open');
+};
+
+// Conexão
+window.addEventListener('online',  () => { const d=$('conn-dot'); if(d){d.style.background='var(--green)';d.title='Conectado';} });
+window.addEventListener('offline', () => { const d=$('conn-dot'); if(d){d.style.background='var(--red)';d.title='Sem conexão';} toast('Sem conexão com internet!'); });
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: AUTENTICAÇÃO
+// ════════════════════════════════════════════════════════════
+window.fazerLogin = function() {
+  const email = $('inp-email').value.trim();
+  const senha = $('inp-senha').value.trim();
+  if (!email || !senha) { showErr('auth-err','Preencha email e senha.'); return; }
+  const btn = $('btn-login');
+  btn.textContent = 'Entrando...';
+  btn.disabled = true;
+  signInWithEmailAndPassword(auth, email, senha).catch(e => {
+    showErr('auth-err', 'Email ou senha inválidos.');
+    btn.textContent = 'Entrar';
+    btn.disabled = false;
+  });
+};
+
+window.fazerLogout = function() {
+  unsubs.forEach(u => u());
+  unsubs = [];
+  signOut(auth);
+};
+
+onAuthStateChanged(auth, async user => {
+  if (!user) {
+    me = null; myRole = null;
+    $('splash').classList.add('hide');
+    $('auth').style.display = 'flex';
+    $('app').style.display  = 'none';
+    $('btn-login').textContent = 'Entrar';
+    $('btn-login').disabled = false;
+    return;
+  }
+
+  me = user;
+
+  // ── Verificar usuário no Firestore ──
+  try {
+    const snap = await getDoc(doc(db, 'users', user.uid));
+    if (!snap.exists()) {
+      // Usuário não cadastrado — bloquear acesso
+      await signOut(auth);
+      showErr('auth-err', 'Acesso não autorizado. Solicite cadastro ao administrador.');
+      return;
+    }
+    const dados = snap.data();
+
+    // Verificar bloqueio ANTES de dar acesso
+    if (dados.bloqueado === true) {
+      await signOut(auth);
+      showErr('auth-err', 'Seu acesso está bloqueado. Entre em contato com o administrador.');
+      return;
+    }
+
+    myRole = dados.role || 'vendedor';
+  } catch (e) {
+    console.error('Erro ao verificar usuário:', e);
+    myRole = 'vendedor';
+  }
+
+  // ── Mostrar app ──
+  $('splash').classList.add('hide');
+  $('auth').style.display  = 'none';
+  $('app').style.display   = 'flex';
+
+  const pill = $('role-pill');
+  if (isAdmin()) {
+    pill.textContent = 'ADMIN';
+    pill.className   = 'role-pill admin';
+    $('nav-admin').style.display = 'flex';
+    $('nav-vend').style.display  = 'none';
+    startAdmin();
+  } else {
+    pill.textContent = 'VENDEDOR';
+    pill.className   = 'role-pill vendedor';
+    $('nav-admin').style.display = 'none';
+    $('nav-vend').style.display  = 'flex';
+    startVendedor();
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: NAVEGAÇÃO
+// ════════════════════════════════════════════════════════════
+window.goAdmin = function(page) {
+  if (!isAdmin()) return;
+  document.querySelectorAll('#nav-admin .nav-item').forEach(n => n.classList.remove('active'));
+  const ni = $('na-' + page); if (ni) ni.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pg = $('page-' + page); if (pg) pg.classList.add('active');
+
+  if (page === 'pedidos')    { pedFiltroAtual='todos'; filtrarPedidos('todos'); }
+  if (page === 'produtos')   { requireAdmin('produtos'); buscarProd(''); }
+  if (page === 'vendedores') { requireAdmin('vendedores'); renderVendedores(); }
+  if (page === 'resumo')     { renderResumo(); }
+  window.scrollTo(0, 0);
+};
+
+window.goVend = function(page) {
+  document.querySelectorAll('#nav-vend .nav-item').forEach(n => n.classList.remove('active'));
+  const ni = $('nv-' + page); if (ni) ni.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const pg = $('page-' + page); if (pg) pg.classList.add('active');
+  window.scrollTo(0, 0);
+};
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: WATCHERS (realtime listeners)
+// ════════════════════════════════════════════════════════════
+function startAdmin() {
+  watchPedidos();
+  watchProdutos();
+  watchVendedores();
+  renderResumo();
+}
+
+function startVendedor() {
+  watchPedidos();
+  watchProdutos();
+  renderMeusPedidos();
+}
+
+function watchPedidos() {
+  const u = onSnapshot(query(collection(db,'pedidos'), orderBy('criadoEm','desc')), snap => {
+    pedidosCache = snap.docs.map(d => ({id:d.id,...d.data()}));
+    const pend = pedidosCache.filter(p=>p.status==='pendente').length;
+    const aprov = pedidosCache.filter(p=>p.status==='aprovado').length;
+    $('st-pend').textContent  = pend;
+    $('st-aprov').textContent = aprov;
+    const b = $('badge-pend');
+    if (b) { b.textContent = pend; b.style.display = pend>0 ? 'flex':'none'; }
+    if ($('page-resumo').classList.contains('active'))  renderResumo();
+    if ($('page-pedidos').classList.contains('active')) filtrarPedidos(pedFiltroAtual);
+    if ($('page-meus').classList.contains('active'))    renderMeusPedidos();
+  });
+  unsubs.push(u);
+}
+
+function watchProdutos() {
+  const u = onSnapshot(collection(db,'produtos'), snap => {
+    produtos = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    $('st-prod').textContent = produtos.length;
+    if ($('page-produtos').classList.contains('active')) buscarProd($('busca-prod').value||'');
+  });
+  unsubs.push(u);
+}
+
+function watchVendedores() {
+  const u = onSnapshot(collection(db,'users'), snap => {
+    vendedoresCache = snap.docs.map(d=>({id:d.id,...d.data()})).filter(u=>u.role==='vendedor');
+    $('st-vend').textContent = vendedoresCache.filter(v=>!v.bloqueado).length;
+    if ($('page-vendedores').classList.contains('active')) renderVendedores();
+  });
+  unsubs.push(u);
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: DASHBOARD / RESUMO
+// ════════════════════════════════════════════════════════════
+function renderResumo() {
+  // Stats financeiros
+  const agora = new Date();
+  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1).getTime();
+  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
+  const aprovados = pedidosCache.filter(p=>p.status==='aprovado');
+  const vendasMes = aprovados.filter(p=>p.criadoEm&&p.criadoEm.seconds*1000>=inicioMes).reduce((a,p)=>a+(p.total||0),0);
+  const vendasHoje = aprovados.filter(p=>p.criadoEm&&p.criadoEm.seconds*1000>=hoje).reduce((a,p)=>a+(p.total||0),0);
+  const naoFaturados = aprovados.filter(p=>!p.faturado).length;
+
+  const finEl = $('resumo-financeiro');
+  if (finEl) {
+    finEl.innerHTML =
+      '<div class="stat" style="cursor:default"><div class="stat-label">Vendas do mês</div><div class="stat-val" style="font-size:20px;color:var(--gold);">R$'+Number(vendasMes).toFixed(0)+'</div></div>'+
+      '<div class="stat" style="cursor:default"><div class="stat-label">Vendas hoje</div><div class="stat-val" style="font-size:20px;">R$'+Number(vendasHoje).toFixed(0)+'</div></div>'+
+      '<div class="stat" onclick="goAdmin(\'inadimplencia\')" style="cursor:pointer;border-color:'+(naoFaturados>0?'rgba(224,62,62,0.4)':'var(--border)')+'"><div class="stat-label">Não faturados</div><div class="stat-val" style="color:'+(naoFaturados>0?'var(--red)':'var(--text)')+';">'+naoFaturados+'</div></div>';
+  }
+
+  // Pendentes
+  const pendentes = pedidosCache.filter(p=>p.status==='pendente');
+  const el = $('resumo-list');
+  if (!el) return;
+  if (!pendentes.length) {
+    el.innerHTML = '<div class="empty"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><p>Nenhum pedido pendente</p></div>';
+    return;
+  }
+  el.innerHTML = pendentes.slice(0,5).map(p=>orderHTML(p)).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: PEDIDOS
+// ════════════════════════════════════════════════════════════
+window.filtrarPedidos = function(status, busca) {
+  pedFiltroAtual = status || pedFiltroAtual;
+  const b = (busca || ($('busca-pedidos')||{value:''}).value || '').toLowerCase().trim();
+  ['todos','pendente','aprovado','rejeitado'].forEach(s => {
+    const btn = $('pf-'+s);
+    if (btn) btn.className = s===pedFiltroAtual ? 'btn btn-primary btn-sm':'btn btn-outline btn-sm';
+  });
+  let lista = pedFiltroAtual==='todos' ? pedidosCache : pedidosCache.filter(p=>p.status===pedFiltroAtual);
+  if (b) lista = lista.filter(p =>
+    (p.cliente&&p.cliente.nome&&p.cliente.nome.toLowerCase().includes(b)) ||
+    (p.vendedorNome&&p.vendedorNome.toLowerCase().includes(b)) ||
+    (p.id&&p.id.slice(-6).toLowerCase().includes(b))
+  );
+  const el = $('pedidos-list'); if (!el) return;
+  el.innerHTML = lista.length ? lista.map(p=>orderHTML(p)).join('') : '<div class="empty"><p>Nenhum pedido encontrado</p></div>';
+};
+
+function renderMeusPedidos() {
+  if (!me) return;
+  const meus = pedidosCache.filter(p=>p.vendedorId===me.uid);
+  const el = $('meus-list'); if (!el) return;
+  el.innerHTML = meus.length ? meus.map(p=>orderHTML(p)).join('') : '<div class="empty"><p>Nenhum pedido ainda</p></div>';
+}
+
+function orderHTML(p) {
+  const hora = p.criadoEm ? new Date(p.criadoEm.seconds*1000).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+  const itensHtml = (p.itens||[]).map(i=>
+    '<div class="prod-item"><div><div class="prod-name">'+i.nome+'</div><div class="prod-ref">'+(i.ref||'')+'</div><div class="prod-meta">'+i.qty+'x @ '+fmt(i.preco)+'</div></div><div class="prod-price">'+fmt(i.preco*i.qty)+'</div></div>'
+  ).join('');
+
+  // Ações — só admin pode aprovar/rejeitar
+  let acoes = '';
+  if (isAdmin() && p.status==='pendente') {
+    acoes = '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">'+
+      '<button class="btn btn-success btn-sm" data-pid="'+p.id+'" onclick="aprovar(this.dataset.pid)">✓ Aprovar</button>'+
+      '<button class="btn btn-danger btn-sm" data-pid="'+p.id+'" onclick="rejeitar(this.dataset.pid)">✕ Rejeitar</button>'+
+      '</div>';
+  } else if (isAdmin() && p.status==='aprovado') {
+    acoes = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'+
+      (p.faturado ? '<span style="font-size:11px;color:var(--green);padding:4px 8px;">✔ Faturado</span>' :
+        '<button class="btn btn-outline btn-sm" data-pid="'+p.id+'" onclick="marcarFaturado(this.dataset.pid)" style="color:var(--green);">✔ Faturado</button>')+
+      '</div>';
+  }
+
+  return '<div class="order-card '+p.status+'" id="ob-'+p.id+'">'+
+    '<div class="order-head" data-id="'+p.id+'" onclick="toggleOrder(this.dataset.id)">'+
+      '<div><div class="order-id">#'+p.id.slice(-6).toUpperCase()+'</div>'+
+      '<div class="order-meta">'+(p.cliente&&p.cliente.nome?p.cliente.nome:'')+(p.vendedorNome?' · '+p.vendedorNome:'')+' · '+hora+'</div></div>'+
+      '<span class="badge '+p.status+'">'+p.status+'</span>'+
+    '</div>'+
+    '<div class="order-body">'+itensHtml+
+      '<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;">'+
+        '<span style="color:var(--text3);font-size:13px;">Total</span>'+
+        '<span style="font-weight:700;color:var(--gold);">'+fmt(p.total)+'</span>'+
+      '</div>'+acoes+
+    '</div>'+
+  '</div>';
+}
+
+window.aprovar = async function(id) {
+  if (!requireAdmin('')) return; // block non-admins
+  const p = pedidosCache.find(x=>x.id===id); if (!p) return;
+  try {
+    await updateDoc(doc(db,'pedidos',id), {status:'aprovado', aprovadoEm:serverTimestamp()});
+    for (const item of (p.itens||[])) {
+      const prod = produtos.find(x=>x.id===item.prodId);
+      if (prod) await updateDoc(doc(db,'produtos',item.prodId), {estoque:Math.max(0,prod.estoque-item.qty)});
+    }
+    toast('Pedido aprovado!');
+  } catch(e) { toast('Erro ao aprovar.'); }
+};
+
+window.rejeitar = async function(id) {
+  if (!isAdmin()) return;
+  try {
+    await updateDoc(doc(db,'pedidos',id), {status:'rejeitado'});
+    toast('Pedido rejeitado.');
+  } catch(e) { toast('Erro ao rejeitar.'); }
+};
+
+window.marcarFaturado = async function(id) {
+  if (!isAdmin()) return;
+  if (!confirm('Marcar pedido como faturado?')) return;
+  await updateDoc(doc(db,'pedidos',id), {faturado:true, faturadoEm:serverTimestamp()});
+  toast('Marcado como faturado!');
+};
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: PRODUTOS
+// ════════════════════════════════════════════════════════════
+window.buscarProd = function(termo) {
+  const t = (termo||'').toLowerCase().trim();
+  const lista = t ? produtos.filter(p=>(p.nome||'').toLowerCase().includes(t)||(p.ref||'').toLowerCase().includes(t)) : produtos;
+  const el = $('produtos-list'); if (!el) return;
+  el.innerHTML = lista.map(p=>
+    '<div class="prod-item">'+
+      '<div><div class="prod-name">'+p.nome+'</div>'+
+      '<div class="prod-ref">'+(p.ref||'')+'</div>'+
+      '<div class="prod-meta">'+(p.marca||'—')+' · Estoque: <span style="color:'+(p.estoque<=5?'var(--red)':'var(--text3)')+'">'+p.estoque+'</span></div></div>'+
+      '<div class="prod-price">'+fmt(p.preco)+'</div>'+
+    '</div>'
+  ).join('') || '<div class="empty"><p>Nenhum produto encontrado</p></div>';
+};
+
+// ════════════════════════════════════════════════════════════
+// MÓDULO: GESTÃO DE VENDEDORES (ADMIN ONLY)
+// ════════════════════════════════════════════════════════════
+function renderVendedores() {
+  const el = $('vendedores-list'); if (!el) return;
+  if (!vendedoresCache.length) {
+    el.innerHTML = '<div class="empty"><p>Nenhum vendedor cadastrado ainda</p></div>';
+    return;
+  }
+  el.innerHTML = vendedoresCache.map(v => {
+    // Estado passado como string — evita problemas de quote nesting
+    const estado = v.bloqueado === true ? 'bloqueado' : 'ativo';
+    return '<div class="card" style="margin-bottom:8px;">'+
+      '<div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-weight:600;font-size:14px;">'+(v.nome||'Sem nome')+'</div>'+
+          '<div style="font-size:12px;color:var(--text3);">'+(v.email||'')+'</div>'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:8px;">'+
+          '<span class="badge '+estado+'">'+(estado==='bloqueado'?'Bloqueado':'Ativo')+'</span>'+
+          '<button class="btn btn-sm '+(estado==='bloqueado'?'btn-success':'btn-danger')+'" '+
+            'data-vid="'+v.id+'" '+
+            'data-estado="'+estado+'" '+
+            'data-nome="'+((v.nome||'Vendedor').replace(/"/g,""))+'" '+
+            'onclick="toggleVendedor(this.dataset.vid, this.dataset.estado, this.dataset.nome)">'+
+            (estado==='bloqueado'?'Reativar':'Bloquear')+
+          '</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+
+window.criarVendedor = async function() {
+  if (!isAdmin()) { toast('Sem permissão.'); return; }
+  const nome  = ($('vnd-nome')||{value:''}).value.trim();
+  const email = ($('vnd-email')||{value:''}).value.trim();
+  const senha = ($('vnd-senha')||{value:''}).value.trim();
+  if (!nome||!email||!senha) { toast('Preencha todos os campos.'); return; }
+  if (senha.length < 6)      { toast('Senha mínimo 6 caracteres.'); return; }
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, senha);
+    await setDoc(doc(db,'users',cred.user.uid), {
+      uid: cred.user.uid, nome, email,
+      role: 'vendedor', bloqueado: false,
+      criadoEm: serverTimestamp()
+    });
+    ['vnd-nome','vnd-email','vnd-senha'].forEach(id=>{const el=$(id);if(el) el.value='';});
+    toast('Vendedor criado com sucesso!');
+  } catch(e) {
+    toast('Erro: '+(e.message||'verifique os dados'));
+  }
+};
+
+// ── BLOQUEAR / REATIVAR ───────────────────────────────────
+// Estado passado diretamente via data-estado — sem leitura do Firestore
+// Evita completamente o problema de cache stale
+window.toggleVendedor = async function(uid, estado, nome) {
+  if (!isAdmin()) { toast('Sem permissão para esta ação.'); return; }
+
+  const estaBloqueado = estado === 'bloqueado';
+  const acao = estaBloqueado ? 'REATIVAR' : 'BLOQUEAR';
+  const nomeStr = nome || 'este vendedor';
+
+  if (!confirm(acao + ': ' + nomeStr + '?')) return;
+
+  try {
+    await updateDoc(doc(db, 'users', uid), { bloqueado: !estaBloqueado });
+    // onSnapshot vai re-renderizar automaticamente com estado correto
+    toast(nomeStr + (estaBloqueado ? ' reativado com sucesso!' : ' bloqueado. Acesso removido.'));
+  } catch(e) {
+    toast('Erro ao alterar acesso. Tente novamente.');
+    console.error('toggleVendedor error:', e);
+  }
+};
+
+</script>
+</body>
+</html>

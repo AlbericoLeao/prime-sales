@@ -5,7 +5,7 @@ import { gerarPedidoPDF } from './pdf.js';
 const state = {
   user: null, profile: null, role: null, page: 'resumo', unsubs: [], deferredInstall: null,
   pedidos: [], produtos: [], vendedores: [], clientes: [], solicitacoes: [], metas: {}, metasVend: {}, notificacoes: [],
-  pedidoClienteId: '', pedidoObs: '', cart: {}, produtoFiltros: { texto: '', marca: '', destaque: false, oferta: false, maisVendido: false },
+  pedidoClienteId: '', cart: {}, produtoFiltros: { texto: '', marca: '', destaque: false, oferta: false, maisVendido: false },
   pedidoFiltro: 'todos', clienteFiltro: '', metaTab: 'geral'
 };
 
@@ -198,15 +198,14 @@ function renderVendedorDashboard() {
 
 function renderAdminPedidos() {
   const statuses = ['todos','enviado','aprovado','faturado','rejeitado','cancelado'];
-  const base = state.pedidos.filter(p => p.status !== 'rascunho');
-  const list = state.pedidoFiltro === 'todos' ? base : base.filter(p => p.status === state.pedidoFiltro);
+  const list = state.pedidoFiltro === 'todos' ? state.pedidos : state.pedidos.filter(p => p.status === state.pedidoFiltro);
   return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos.') +
     `<div class="filters">${statuses.map(s=>`<button class="btn small ${state.pedidoFiltro===s?'primary':''}" data-filter-ped="${s}">${s==='todos'?'Todos':STATUS[s]}</button>`).join('')}</div>` + orderList(list);
 }
 
 function renderMeusPedidos() {
   const mine = ownPedidos();
-  const statuses = ['todos','rascunho','enviado','aprovado','faturado','rejeitado','cancelado'];
+  const statuses = ['todos','enviado','aprovado','faturado','rejeitado','cancelado'];
   const list = state.pedidoFiltro === 'todos' ? mine : mine.filter(p => p.status === state.pedidoFiltro);
   return head('Meus Pedidos', 'Acompanhe pedidos enviados, aprovados e faturados.') +
     `<div class="filters">${statuses.map(s=>`<button class="btn small ${state.pedidoFiltro===s?'primary':''}" data-filter-ped="${s}">${s==='todos'?'Todos':STATUS[s]}</button>`).join('')}</div>` + orderList(list);
@@ -264,17 +263,17 @@ function productBadges(p) {
 function productCard(p, admin = false) {
   const id = p.id;
   const qty = state.cart[id]?.qty || 0;
-  const desc = state.cart[id]?.descontoPct || 0;
-  const priceFinal = Number(p.preco||0) * (1 - desc/100);
-  return `<article class="product-card"><div><div class="row-top"><div><div class="product-name">${escapeHtml(p.nome||'Sem nome')}</div><div class="product-meta">${escapeHtml(p.codigo||p.ref||id)} · ${escapeHtml(p.marca||'Sem marca')} · Estoque ${Number(p.estoque||0)}</div></div><div class="price">${money(p.preco)}</div></div><div class="actions">${productBadges(p)}</div>${p.descricao?`<div class="row-sub">${escapeHtml(p.descricao)}</div>`:''}</div>${admin ? `<div class="actions"><button class="btn small" data-edit-product="${id}">Editar</button><button class="btn red small" data-delete-product="${id}">Excluir</button></div>` : `<div><div class="qty"><button data-qty="${id}" data-delta="-1">−</button><span>${qty}</span><button data-qty="${id}" data-delta="1">+</button></div><label>Desconto: ${desc}%<input type="range" min="0" max="7" step="1" value="${desc}" data-discount="${id}"></label><div class="row-top"><span class="row-sub">Subtotal</span><strong>${money(priceFinal*qty)}</strong></div></div>`}</article>`;
+  const desc = 0;
+  const priceFinal = Number(p.preco||0);
+  return `<article class="product-card"><div><div class="row-top"><div><div class="product-name">${escapeHtml(p.nome||'Sem nome')}</div><div class="product-meta">${escapeHtml(p.codigo||p.ref||id)} · ${escapeHtml(p.marca||'Sem marca')} · Estoque ${Number(p.estoque||0)}</div></div><div class="price">${money(p.preco)}</div></div><div class="actions">${productBadges(p)}</div>${p.descricao?`<div class="row-sub">${escapeHtml(p.descricao)}</div>`:''}</div>${admin ? `<div class="actions"><button class="btn small" data-edit-product="${id}">Editar</button><button class="btn red small" data-delete-product="${id}">Excluir</button></div>` : `<div><div class="qty"><button data-qty="${id}" data-delta="-1">−</button><span>${qty}</span><button data-qty="${id}" data-delta="1">+</button></div><div class="row-sub">Desconto: 0%</div><div class="row-top"><span class="row-sub">Subtotal</span><strong>${money(priceFinal*qty)}</strong></div></div>`}</article>`;
 }
 
 function renderCatalogo() {
   const clientes = ownClientes();
   const total = cartTotal();
   return head('Catálogo', 'Monte pedidos rapidamente pelo celular.') +
-    `<section class="card"><label>Cliente<select id="pedido-cliente"><option value="">Selecione cliente da carteira</option>${clientes.map(c=>`<option value="${c.id}" ${state.pedidoClienteId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('')}</select></label><label>Observações Comerciais<textarea id="pedido-obs" placeholder="Prazo, frete, condições especiais, entrega parcial...">${escapeHtml(state.pedidoObs)}</textarea></label></section>` + productFiltersHtml() + productListHtml(activeProducts(), false) +
-    `<div class="cart-bar"><div><strong>${money(total)}</strong><div>${Object.values(state.cart).filter(i=>Number(i.qty||0)>0).length} item(ns) no pedido</div></div><div class="actions"><button class="btn" data-save-draft>Salvar rascunho</button><button class="btn primary" data-send-order>Enviar para aprovação</button></div></div>`;
+    `<section class="card"><label>Cliente<select id="pedido-cliente"><option value="">Selecione cliente da carteira</option>${clientes.map(c=>`<option value="${c.id}" ${state.pedidoClienteId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('')}</select></label><label>Observações Comerciais<textarea id="pedido-obs" placeholder="Prazo, frete, condições especiais, entrega parcial..."></textarea></label></section>` + productFiltersHtml() + productListHtml(activeProducts(), false) +
+    `<div class="cart-bar"><div><strong>${money(total)}</strong><div>${Object.keys(state.cart).length} item(ns) no pedido</div></div><button class="btn" data-send-order>Enviar para aprovação</button></div>`;
 }
 
 function cartTotal() { return Object.values(state.cart).reduce((s,i)=>s+Number(i.subtotal||0),0); }
@@ -282,13 +281,13 @@ function cartTotal() { return Object.values(state.cart).reduce((s,i)=>s+Number(i
 function renderCarteira() {
   const t = state.clienteFiltro.toLowerCase();
   const list = ownClientes().filter(c => !t || (c.nome||'').toLowerCase().includes(t) || (c.doc||c.cnpj||'').toLowerCase().includes(t));
-  return head('Minha Carteira', 'Somente clientes atribuídos a você.') + `<section class="card"><label>Pesquisar cliente<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro==='todos'?'':state.clienteFiltro)}"></label></section>` + clientesList(list, false);
+  return head('Minha Carteira', 'Somente clientes atribuídos a você.') + `<section class="card"><label>Pesquisar cliente<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro)}"></label></section>` + clientesList(list, false);
 }
 
 function renderAdminClientes() {
   return head('Clientes', 'Carteira geral, atribuição, transferência e aprovação de novos clientes.') +
     `<section class="card"><div class="card-title"><h3>Solicitações pendentes</h3></div>${solicitacoesHtml(state.solicitacoes)}</section>` +
-    `<section class="card"><div class="form-row"><label>Pesquisar<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro==='todos'?'':state.clienteFiltro)}"></label><label>Filtrar responsável<select id="cliente-resp"><option value="todos">Todos</option><option value="geral">Carteira geral</option>${state.vendedores.map(v=>`<option value="${v.id}" ${state.clienteFiltro===v.id?'selected':''}>${escapeHtml(v.nome||v.email)}</option>`).join('')}</select></label></div><button class="btn primary full" data-new-client>Novo cliente</button></section>` + clientesList(filtrarClientesAdmin(), true);
+    `<section class="card"><div class="form-row"><label>Pesquisar<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro)}"></label><label>Filtrar responsável<select id="cliente-resp"><option value="todos">Todos</option><option value="geral">Carteira geral</option>${state.vendedores.map(v=>`<option value="${v.id}" ${state.clienteFiltro===v.id?'selected':''}>${escapeHtml(v.nome||v.email)}</option>`).join('')}</select></label></div><button class="btn primary full" data-new-client>Novo cliente</button></section>` + clientesList(filtrarClientesAdmin(), true);
 }
 
 function filtrarClientesAdmin() {
@@ -351,23 +350,19 @@ async function saveProduct() {
   toast('Produto salvo.');
 }
 
-async function saveDraft() { return saveOrder('rascunho'); }
-async function sendOrder() { return saveOrder('enviado'); }
-
-async function saveOrder(status) {
+async function sendOrder() {
   if (!state.pedidoClienteId) return toast('Selecione um cliente.');
   const cliente = state.clientes.find(c => c.id === state.pedidoClienteId);
-  const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
+  const itens = Object.values(state.cart);
   if (!cliente || !itens.length) return toast('Adicione produtos ao pedido.');
   const numero = `PS-${Date.now().toString(36).toUpperCase()}`;
   const pedido = { numero, vendedorId: state.user.uid, vendedorNome: vendedorNome(state.user.uid), clienteId: cliente.id,
     cliente: { id: cliente.id, nome: cliente.nome || cliente.razaoSocial, doc: cliente.doc || cliente.cnpj, telefone: cliente.tel || cliente.telefone, cidade: cliente.cidade, estado: cliente.estado },
-    itens, observacoes: state.pedidoObs.trim(), total: cartTotal(), status, historico: [statusHistory(status, status === 'rascunho' ? 'Pedido salvo como rascunho' : 'Pedido enviado para aprovação')],
-    criadoEm: fb.serverTimestamp(), atualizadoEm: fb.serverTimestamp() };
-  if (status === 'enviado') pedido.enviadoEm = fb.serverTimestamp();
+    itens, observacoes: $('#pedido-obs')?.value.trim() || '', total: cartTotal(), status: 'enviado', historico: [statusHistory('enviado','Pedido enviado para aprovação')],
+    criadoEm: fb.serverTimestamp(), enviadoEm: fb.serverTimestamp(), atualizadoEm: fb.serverTimestamp() };
   await fb.addDoc(col('pedidos'), pedido);
-  state.cart = {}; state.pedidoClienteId = ''; state.pedidoObs = '';
-  toast(status === 'rascunho' ? 'Rascunho salvo.' : 'Pedido enviado para aprovação.');
+  state.cart = {}; state.pedidoClienteId = '';
+  toast('Pedido enviado para aprovação.');
   setPage('meus');
 }
 
@@ -412,8 +407,6 @@ function bindPageEvents() {
   $$('[data-qty]').forEach(b => b.onclick = () => updateQty(b.dataset.qty, Number(b.dataset.delta)));
   $$('[data-discount]').forEach(i => i.oninput = () => updateDiscount(i.dataset.discount, Number(i.value)));
   $('#pedido-cliente')?.addEventListener('change', e => { state.pedidoClienteId = e.target.value; });
-  $('#pedido-obs')?.addEventListener('input', e => { state.pedidoObs = e.target.value; });
-  $('[data-save-draft]')?.addEventListener('click', saveDraft);
   $('[data-send-order]')?.addEventListener('click', sendOrder);
   $$('[data-start-order]').forEach(b => b.onclick = () => { state.pedidoClienteId = b.dataset.startOrder; setPage('catalogo'); });
   $('#cliente-search')?.addEventListener('input', e => { state.clienteFiltro = e.target.value; renderPage(); });

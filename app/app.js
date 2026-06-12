@@ -184,7 +184,7 @@ function renderCarteira() {
   const term = state.clienteFiltro.toLowerCase();
   const list = ownClientes().filter(c => !term || (c.nome || c.razaoSocial || '').toLowerCase().includes(term) || (c.doc || c.cnpj || '').toLowerCase().includes(term));
   return head('Minha Carteira', 'Somente clientes com vendedorId igual ao seu UID.') +
-    `<section class="card"><label>Pesquisar cliente<input id="cliente-search" placeholder="Nome ou CNPJ" value="${escapeHtml(state.clienteFiltro)}"></label></section>` + clientesList(list, false);
+    `<section class="card"><label>Pesquisar cliente<input id="cliente-search" placeholder="Nome ou CNPJ" value="${escapeHtml(state.clienteFiltro)}"></label></section><div id="cliente-list">${clientesList(list, false)}</div>`;
 }
 
 function renderCatalogo() {
@@ -238,16 +238,36 @@ function orderCard(p) {
 function bindPageEvents() {
   $$('[data-page-jump]').forEach(btn => btn.onclick = () => setPage(btn.dataset.pageJump));
   $$('[data-filter-ped]').forEach(btn => btn.onclick = () => { state.pedidoFiltro = btn.dataset.filterPed; renderPage(); });
-  $$('[data-start-order]').forEach(btn => btn.onclick = () => { state.pedidoClienteId = btn.dataset.startOrder; state.cart = {}; setPage('catalogo'); });
+  bindStartOrderButtons();
   $$('[data-qty]').forEach(btn => btn.onclick = () => updateQty(btn.dataset.qty, Number(btn.dataset.delta)));
   $('#pedido-cliente')?.addEventListener('change', e => { state.pedidoClienteId = e.target.value; });
   $('#pedido-obs')?.addEventListener('input', e => { state.pedidoObs = e.target.value; });
-  $('#cliente-search')?.addEventListener('input', e => { state.clienteFiltro = e.target.value; renderPage(); });
-  $('[data-send-order]')?.addEventListener('click', sendOrder);
+  $('#cliente-search')?.addEventListener('input', e => {
+    state.clienteFiltro = e.target.value;
+    renderClienteList();
+  });
+  $('[data-send-order]')?.addEventListener('click', e => sendOrder(e.currentTarget));
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-bill]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.bill, 'faturado'));
   $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
+}
+
+function bindStartOrderButtons() {
+  $$('[data-start-order]').forEach(btn => btn.onclick = () => {
+    state.pedidoClienteId = btn.dataset.startOrder;
+    state.cart = {};
+    setPage('catalogo');
+  });
+}
+
+function renderClienteList() {
+  const target = $('#cliente-list');
+  if (!target) return;
+  const term = state.clienteFiltro.toLowerCase();
+  const list = ownClientes().filter(c => !term || (c.nome || c.razaoSocial || '').toLowerCase().includes(term) || (c.doc || c.cnpj || '').toLowerCase().includes(term));
+  target.innerHTML = clientesList(list, false);
+  bindStartOrderButtons();
 }
 
 function updateQty(id, delta) {
@@ -270,33 +290,41 @@ function updateQty(id, delta) {
   renderPage();
 }
 
-async function sendOrder() {
+async function sendOrder(button) {
   if (!isVend()) return toast('Somente vendedores enviam pedidos.');
   const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && c.vendedorId === state.user.uid);
   const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
   if (!cliente) return toast('Selecione um cliente da sua carteira.');
   if (!itens.length) return toast('Adicione produtos ao pedido.');
   const numero = `PS-${Date.now().toString(36).toUpperCase()}`;
-  await fb.addDoc(col('pedidos'), {
-    numero,
-    vendedorId: state.user.uid,
-    vendedorNome: vendedorNome(),
-    clienteId: cliente.id,
-    cliente: { id: cliente.id, nome: cliente.nome || cliente.razaoSocial, doc: cliente.doc || cliente.cnpj, telefone: cliente.tel || cliente.telefone, cidade: cliente.cidade, estado: cliente.estado },
-    itens,
-    observacoes: state.pedidoObs.trim(),
-    total: cartTotal(),
-    status: 'enviado',
-    historico: [statusHistory('enviado')],
-    enviadoEm: fb.serverTimestamp(),
-    criadoEm: fb.serverTimestamp(),
-    atualizadoEm: fb.serverTimestamp()
-  });
-  state.cart = {};
-  state.pedidoClienteId = '';
-  state.pedidoObs = '';
-  toast('Pedido enviado para aprovação.');
-  setPage('meus');
+  if (button) button.disabled = true;
+  try {
+    await fb.addDoc(col('pedidos'), {
+      numero,
+      vendedorId: state.user.uid,
+      vendedorNome: vendedorNome(),
+      clienteId: cliente.id,
+      cliente: { id: cliente.id, nome: cliente.nome || cliente.razaoSocial, doc: cliente.doc || cliente.cnpj, telefone: cliente.tel || cliente.telefone, cidade: cliente.cidade, estado: cliente.estado },
+      itens,
+      observacoes: state.pedidoObs.trim(),
+      total: cartTotal(),
+      status: 'enviado',
+      historico: [statusHistory('enviado')],
+      enviadoEm: fb.serverTimestamp(),
+      criadoEm: fb.serverTimestamp(),
+      atualizadoEm: fb.serverTimestamp()
+    });
+    state.cart = {};
+    state.pedidoClienteId = '';
+    state.pedidoObs = '';
+    toast('Pedido enviado para aprovação.');
+    setPage('meus');
+  } catch (err) {
+    console.error(err);
+    toast(`Erro ao enviar pedido: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function changeOrderStatus(id, status) {

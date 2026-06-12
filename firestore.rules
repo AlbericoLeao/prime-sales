@@ -8,18 +8,6 @@ service cloud.firestore {
     function admin() { return active() && role() == 'admin'; }
     function vendedor() { return active() && role() == 'vendedor'; }
     function owner(uid) { return active() && request.auth.uid == uid; }
-    function validPedidoStatus(status) {
-      return status in ['rascunho', 'enviado', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
-    }
-    function validAdminPedidoTransition() {
-      return (resource.data.status == 'enviado' && request.resource.data.status in ['aprovado', 'rejeitado']) ||
-        (resource.data.status == 'aprovado' && request.resource.data.status == 'faturado');
-    }
-    function validOwnerPedidoTransition() {
-      return vendedor() && resource.data.vendedorId == request.auth.uid && request.resource.data.vendedorId == request.auth.uid &&
-        resource.data.status == 'rascunho' && request.resource.data.status in ['enviado', 'cancelado'] &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'historico', 'atualizadoEm', 'enviadoEm']);
-    }
 
     match /users/{uid} {
       allow read: if admin() || owner(uid);
@@ -44,8 +32,8 @@ service cloud.firestore {
 
     match /pedidos/{id} {
       allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
-      allow create: if vendedor() && request.resource.data.vendedorId == request.auth.uid && validPedidoStatus(request.resource.data.status) && request.resource.data.status in ['rascunho', 'enviado'];
-      allow update: if (admin() && validPedidoStatus(request.resource.data.status) && validAdminPedidoTransition()) || validOwnerPedidoTransition();
+      allow create: if vendedor() && request.resource.data.vendedorId == request.auth.uid && request.resource.data.status in ['rascunho', 'enviado'];
+      allow update: if admin();
       allow delete: if false;
     }
 

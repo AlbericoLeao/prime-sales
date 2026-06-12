@@ -1,16 +1,6 @@
 import { money, formatDate } from './utils.js';
 
-function numeric(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function firstDefined(...values) {
-  return values.find(value => value !== undefined && value !== null);
-}
-
 export function gerarPedidoPDF(pedido) {
-  if (!pedido) throw new Error('Pedido não informado para geração do PDF.');
   const jsPDF = window.jspdf?.jsPDF;
   if (!jsPDF) throw new Error('Biblioteca jsPDF não carregada.');
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -50,12 +40,8 @@ export function gerarPedidoPDF(pedido) {
     pdf.setFont('helvetica', 'bold'); pdf.text(nome.slice(0, 58), margin, y);
     pdf.setFont('helvetica', 'normal');
     y += 13;
-    const quantidade = numeric(firstDefined(item.qty, item.quantidade), 0);
-    const precoOriginal = numeric(firstDefined(item.precoOriginal, item.preco), 0);
-    const precoFinal = numeric(firstDefined(item.precoFinal, item.preco), precoOriginal);
-    const subtotal = numeric(firstDefined(item.subtotal), precoFinal * quantidade);
-    pdf.text(`Qtd: ${quantidade}  Original: ${money(precoOriginal)}  Desc.: ${item.descontoPct || 0}%  Final: ${money(precoFinal)}`, margin, y);
-    pdf.text(money(subtotal), 500, y, { align: 'right' });
+    pdf.text(`Qtd: ${item.qty || item.quantidade || 0}  Original: ${money(item.precoOriginal ?? item.preco)}  Desc.: ${item.descontoPct || 0}%  Final: ${money(item.precoFinal ?? item.preco)}`, margin, y);
+    pdf.text(money(item.subtotal || ((((item.precoFinal ?? item.preco) || 0) * (item.qty || item.quantidade || 0)))), 500, y, { align: 'right' });
     y += 22;
   });
   y += 10;

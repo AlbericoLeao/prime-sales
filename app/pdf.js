@@ -41,7 +41,7 @@ export function gerarPedidoPDF(pedido) {
     pdf.setFont('helvetica', 'normal');
     y += 13;
     pdf.text(`Qtd: ${item.qty || item.quantidade || 0}  Original: ${money(item.precoOriginal ?? item.preco)}  Desc.: ${item.descontoPct || 0}%  Final: ${money(item.precoFinal ?? item.preco)}`, margin, y);
-    pdf.text(money(item.subtotal || ((item.precoFinal ?? item.preco || 0) * (item.qty || item.quantidade || 0))), 500, y, { align: 'right' });
+    pdf.text(money(item.subtotal || ((((item.precoFinal ?? item.preco) || 0) * (item.qty || item.quantidade || 0)))), 500, y, { align: 'right' });
     y += 22;
   });
   y += 10;

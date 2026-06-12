@@ -5,8 +5,8 @@ import { gerarPedidoPDF } from './pdf.js';
 const state = {
   user: null, profile: null, role: null, page: 'resumo', unsubs: [], deferredInstall: null,
   pedidos: [], produtos: [], vendedores: [], clientes: [], solicitacoes: [], metas: {}, metasVend: {}, notificacoes: [],
-  pedidoClienteId: '', cart: {}, produtoFiltros: { texto: '', marca: '', destaque: false, oferta: false, maisVendido: false },
-  pedidoFiltro: 'todos', clienteFiltro: 'todos', metaTab: 'geral'
+  pedidoClienteId: '', pedidoObs: '', cart: {}, produtoFiltros: { texto: '', marca: '', destaque: false, oferta: false, maisVendido: false },
+  pedidoFiltro: 'todos', clienteFiltro: '', clienteResponsavel: 'todos', clienteFormOpen: false, clienteEditId: '', metaTab: 'geral'
 };
 
 const STATUS = {
@@ -21,7 +21,10 @@ const VEND_NAV = [
 
 function isAdmin() { return state.role === 'admin'; }
 function isVend() { return state.role === 'vendedor'; }
-function vendedorNome(uid) { return state.vendedores.find(v => v.id === uid)?.nome || state.profile?.nome || state.user?.email || 'Vendedor'; }
+function vendedorNome(uid) {
+  if (!uid) return '';
+  return state.vendedores.find(v => v.id === uid)?.nome || (uid === state.user?.uid ? (state.profile?.nome || state.user?.email) : '') || 'Vendedor';
+}
 function mesAtual() { return ym(); }
 function getMetaGeral() { return Number(state.metas[mesAtual()]?.valor || 0); }
 function getMetaVend(uid = state.user?.uid) { return Number(state.metasVend[`${uid}-${mesAtual()}`]?.valor || 0); }
@@ -35,68 +38,153 @@ function statusHistory(status, note = '') {
   return { status, note, at: new Date().toISOString(), by: state.user?.uid || '', byName: state.profile?.nome || state.user?.email || '' };
 }
 
+function resetSessionState() {
+  state.unsubs.forEach(fn => fn());
+  state.user = null;
+  state.profile = null;
+  state.role = null;
+  state.page = 'resumo';
+  state.unsubs = [];
+  state.pedidos = [];
+  state.produtos = [];
+  state.vendedores = [];
+  state.clientes = [];
+  state.solicitacoes = [];
+  state.metas = {};
+  state.metasVend = {};
+  state.notificacoes = [];
+  state.pedidoClienteId = '';
+  state.pedidoObs = '';
+  state.cart = {};
+  state.produtoFiltros = { texto: '', marca: '', destaque: false, oferta: false, maisVendido: false };
+  state.pedidoFiltro = 'todos';
+  state.clienteFiltro = '';
+  state.clienteResponsavel = 'todos';
+  state.clienteFormOpen = false;
+  state.clienteEditId = '';
+  $('#content').innerHTML = '';
+  $('#main-nav').innerHTML = '';
+  $('#bottom-nav').innerHTML = '';
+}
+
+function showLogin(message = '') {
+  document.body.classList.remove('with-sidebar');
+  $('#sidebar')?.classList.remove('open');
+  $('#sidebar-backdrop')?.classList.add('hidden');
+  $('#app').classList.add('hidden');
+  $('#auth').classList.remove('hidden');
+  $('#login-button').textContent = 'Entrar';
+  $('#login-button').disabled = false;
+  if (message) {
+    $('#auth-error').textContent = message;
+    $('#auth-error').classList.remove('hidden');
+  } else {
+    $('#auth-error').classList.add('hidden');
+  }
+  setLoading(true);
+}
+
+function hideProtectedUi() {
+  $('#app').classList.add('hidden');
+  $('#auth').classList.add('hidden');
+  document.body.classList.remove('with-sidebar');
+  $('#sidebar')?.classList.remove('open');
+  $('#sidebar-backdrop')?.classList.add('hidden');
+}
+
 function setLoading(done = true) {
   $('#splash')?.classList.toggle('hide', done);
   setTimeout(() => $('#splash')?.classList.add('hidden'), 420);
 }
 
+function isDesktopNav() { return window.matchMedia('(min-width: 760px)').matches; }
+
+function syncSidebarForViewport() {
+  const desktop = isDesktopNav();
+  document.body.classList.toggle('with-sidebar', desktop && !!state.user);
+  $('#sidebar')?.classList.toggle('open', desktop);
+  $('#sidebar-backdrop')?.classList.add('hidden');
+}
+
 function setPage(page) {
+  const target = navItems().find(i => i[0] === page);
+  if (!target) return toast('Página indisponível para este perfil.');
   state.page = page;
-  $('#page-subtitle').textContent = navItems().find(i => i[0] === page)?.[2] || 'Prime Sales';
+  $('#page-subtitle').textContent = target[2] || 'Prime Sales';
   renderNav();
   renderPage();
-  closeMenu();
+  if (!isDesktopNav()) closeMenu();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function navItems() { return isAdmin() ? ADMIN_NAV : VEND_NAV; }
 
-function renderNav() {
-  const items = navItems();
-  const html = items.map(([key, icon, label]) => `<button data-page="${key}" class="${state.page === key ? 'active' : ''}"><b>${icon}</b><span>${label}</span></button>`).join('');
-  $('#main-nav').innerHTML = html;
-  $('#bottom-nav').innerHTML = html;
-  $$('#main-nav button,#bottom-nav button').forEach(btn => btn.addEventListener('click', () => setPage(btn.dataset.page)));
+function handleNavClick(page) {
+  if (!page) return;
+  setPage(page);
 }
 
-function openMenu() { $('#sidebar').classList.add('open'); $('#sidebar-backdrop').classList.remove('hidden'); }
-function closeMenu() { $('#sidebar').classList.remove('open'); $('#sidebar-backdrop').classList.add('hidden'); }
+function bindNavContainer(selector) {
+  const nav = $(selector);
+  if (!nav) return;
+  nav.onclick = event => {
+    const button = event.target.closest('button[data-page]');
+    if (!button || !nav.contains(button)) return;
+    handleNavClick(button.dataset.page);
+  };
+}
+
+function renderNav() {
+  const items = navItems();
+  const html = items.map(([key, icon, label]) => `<button type="button" data-page="${key}" class="${state.page === key ? 'active' : ''}"><b>${icon}</b><span>${label}</span></button>`).join('');
+  $('#main-nav').innerHTML = html;
+  $('#bottom-nav').innerHTML = html;
+  bindNavContainer('#main-nav');
+  bindNavContainer('#bottom-nav');
+}
+
+function openMenu() {
+  $('#sidebar').classList.add('open');
+  if (!isDesktopNav()) $('#sidebar-backdrop').classList.remove('hidden');
+}
+function closeMenu() {
+  if (isDesktopNav()) { syncSidebarForViewport(); return; }
+  $('#sidebar').classList.remove('open');
+  $('#sidebar-backdrop').classList.add('hidden');
+}
 
 async function notifyUser(uid, titulo, texto, pedidoId = '') {
   if (!uid) return;
   await fb.addDoc(col('notificacoes'), { uid, titulo, texto, pedidoId, lida: false, criadoEm: fb.serverTimestamp() });
 }
 
-function subscribe(name, callback, order = 'criadoEm') {
-  const q = order ? fb.query(col(name), fb.orderBy(order, 'desc')) : col(name);
-  const unsub = fb.onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))), err => toast(`Erro ao carregar ${name}: ${err.message}`));
-  state.unsubs.push(unsub);
-}
-
-function listen(source, callback) {
+function listen(source, callback, label = 'dados') {
   const unsub = fb.onSnapshot(source, snap => {
     if (snap.docs) callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     else callback(snap.exists() ? [{ id: snap.id, ...snap.data() }] : []);
-  }, err => toast(`Erro ao carregar dados: ${err.message}`));
+  }, err => {
+    console.error(`Erro ao carregar ${label}:`, err);
+    toast(`Erro ao carregar ${label}: ${err.message}`);
+  });
   state.unsubs.push(unsub);
 }
 
 function startListeners() {
   state.unsubs.forEach(fn => fn()); state.unsubs = [];
   const uid = state.user.uid;
-  const pedidosQuery = isAdmin() ? fb.query(col('pedidos'), fb.orderBy('criadoEm','desc')) : fb.query(col('pedidos'), fb.where('vendedorId','==',uid), fb.orderBy('criadoEm','desc'));
-  listen(pedidosQuery, docs => { state.pedidos = docs; rerender(); });
-  listen(col('produtos'), docs => { state.produtos = docs.sort(sortProducts); rerender(); });
-  if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')); rerender(); });
+  const pedidosQuery = isAdmin() ? col('pedidos') : fb.query(col('pedidos'), fb.where('vendedorId','==',uid));
+  listen(pedidosQuery, docs => { state.pedidos = docs.sort((a,b)=>tsMs(b.criadoEm)-tsMs(a.criadoEm)); rerender(); }, 'pedidos');
+  listen(col('produtos'), docs => { state.produtos = docs.sort(sortProducts); rerender(); }, 'produtos');
+  if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')); rerender(); }, 'vendedores');
   else state.vendedores = [{ id: uid, ...state.profile }];
   const clientesQuery = isAdmin() ? col('clientes') : fb.query(col('clientes'), fb.where('vendedorId','==',uid));
-  listen(clientesQuery, docs => { state.clientes = docs.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')); rerender(); });
-  const solicQuery = isAdmin() ? fb.query(col('solicitacoesClientes'), fb.orderBy('criadoEm','desc')) : fb.query(col('solicitacoesClientes'), fb.where('vendedorId','==',uid), fb.orderBy('criadoEm','desc'));
-  listen(solicQuery, docs => { state.solicitacoes = docs; rerender(); });
-  listen(col('metas'), docs => { state.metas = Object.fromEntries(docs.map(d => [d.mes || d.id, d])); rerender(); });
-  if (isAdmin()) listen(col('metas-vend'), docs => { state.metasVend = Object.fromEntries(docs.map(d => [d.id, d])); rerender(); });
-  else listen(ref('metas-vend', `${uid}-${mesAtual()}`), docs => { state.metasVend = Object.fromEntries(docs.map(d => [d.id, d])); rerender(); });
-  listen(fb.query(col('notificacoes'), fb.where('uid','==',uid), fb.orderBy('criadoEm','desc')), docs => { state.notificacoes = docs.slice(0, 40); rerender(); });
+  listen(clientesQuery, docs => { state.clientes = docs.sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')); rerender(); }, 'clientes');
+  const solicQuery = isAdmin() ? col('solicitacoesClientes') : fb.query(col('solicitacoesClientes'), fb.where('vendedorId','==',uid));
+  listen(solicQuery, docs => { state.solicitacoes = docs.sort((a,b)=>tsMs(b.criadoEm)-tsMs(a.criadoEm)); rerender(); }, 'solicitações de clientes');
+  listen(col('metas'), docs => { state.metas = Object.fromEntries(docs.map(d => [d.mes || d.id, d])); rerender(); }, 'metas');
+  if (isAdmin()) listen(col('metas-vend'), docs => { state.metasVend = Object.fromEntries(docs.map(d => [d.id, d])); rerender(); }, 'metas por vendedor');
+  else listen(ref('metas-vend', `${uid}-${mesAtual()}`), docs => { state.metasVend = Object.fromEntries(docs.map(d => [d.id, d])); rerender(); }, 'meta individual');
+  listen(fb.query(col('notificacoes'), fb.where('uid','==',uid)), docs => { state.notificacoes = docs.sort((a,b)=>tsMs(b.criadoEm)-tsMs(a.criadoEm)).slice(0, 40); rerender(); }, 'notificações');
 }
 
 function rerender() {
@@ -111,6 +199,9 @@ function sortProducts(a,b) {
 }
 
 function renderPage() {
+  const active = document.activeElement;
+  const activeId = active?.id || '';
+  const selectionStart = typeof active?.selectionStart === 'number' ? active.selectionStart : null;
   const pages = {
     resumo: renderAdminDashboard, pedidos: renderAdminPedidos, produtos: renderAdminProdutos, clientes: renderAdminClientes,
     vendedores: renderVendedores, metas: renderMetas, ranking: renderRanking, notificacoes: renderNotificacoes,
@@ -118,6 +209,13 @@ function renderPage() {
   };
   $('#content').innerHTML = (pages[state.page] || renderAdminDashboard)();
   bindPageEvents();
+  if (activeId) {
+    const next = document.getElementById(activeId);
+    if (next) {
+      next.focus();
+      if (selectionStart !== null && typeof next.setSelectionRange === 'function') next.setSelectionRange(selectionStart, selectionStart);
+    }
+  }
 }
 
 function head(title, subtitle = '', actions = '') {
@@ -167,14 +265,15 @@ function renderVendedorDashboard() {
 
 function renderAdminPedidos() {
   const statuses = ['todos','enviado','aprovado','faturado','rejeitado','cancelado'];
-  const list = state.pedidoFiltro === 'todos' ? state.pedidos : state.pedidos.filter(p => p.status === state.pedidoFiltro);
+  const base = state.pedidos.filter(p => p.status !== 'rascunho');
+  const list = state.pedidoFiltro === 'todos' ? base : base.filter(p => p.status === state.pedidoFiltro);
   return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos.') +
     `<div class="filters">${statuses.map(s=>`<button class="btn small ${state.pedidoFiltro===s?'primary':''}" data-filter-ped="${s}">${s==='todos'?'Todos':STATUS[s]}</button>`).join('')}</div>` + orderList(list);
 }
 
 function renderMeusPedidos() {
   const mine = ownPedidos();
-  const statuses = ['todos','enviado','aprovado','faturado','rejeitado','cancelado'];
+  const statuses = ['todos','rascunho','enviado','aprovado','faturado','rejeitado','cancelado'];
   const list = state.pedidoFiltro === 'todos' ? mine : mine.filter(p => p.status === state.pedidoFiltro);
   return head('Meus Pedidos', 'Acompanhe pedidos enviados, aprovados e faturados.') +
     `<div class="filters">${statuses.map(s=>`<button class="btn small ${state.pedidoFiltro===s?'primary':''}" data-filter-ped="${s}">${s==='todos'?'Todos':STATUS[s]}</button>`).join('')}</div>` + orderList(list);
@@ -190,6 +289,7 @@ function orderCard(p) {
   actions.push(`<button class="btn small" data-pdf="${p.id}">PDF</button>`);
   if (isAdmin() && p.status === 'enviado') actions.push(`<button class="btn green small" data-approve="${p.id}">Aprovar</button><button class="btn red small" data-reject="${p.id}">Rejeitar</button>`);
   if (isAdmin() && p.status === 'aprovado') actions.push(`<button class="btn blue small" data-bill="${p.id}">Marcar faturado</button>`);
+  if (isVend() && p.status === 'rascunho') actions.push(`<button class="btn green small" data-send-draft="${p.id}">Enviar</button><button class="btn red small" data-cancel-order="${p.id}">Cancelar</button>`);
   const itens = (p.itens || []).map(i => `<div class="row-sub">${escapeHtml(i.nome)} · ${i.qty}x · desc. ${i.descontoPct||0}% · ${money(i.subtotal)}</div>`).join('');
   return `<article class="row-card"><div class="row-top"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span></div>${itens}<div class="row-top" style="margin-top:10px"><strong>${money(p.total)}</strong><div class="actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
 }
@@ -210,9 +310,10 @@ function productFiltersHtml() {
   return `<section class="card"><div class="form-row"><label>Pesquisar<input id="prod-search" placeholder="Nome ou código" value="${escapeHtml(state.produtoFiltros.texto)}"></label><label>Marca<select id="prod-brand"><option value="">Todas</option>${marcas.map(m=>`<option ${state.produtoFiltros.marca===m?'selected':''}>${escapeHtml(m)}</option>`).join('')}</select></label></div><div class="filters"><button class="btn small ${state.produtoFiltros.destaque?'primary':''}" data-prod-flag="destaque">Destaque</button><button class="btn small ${state.produtoFiltros.oferta?'primary':''}" data-prod-flag="oferta">Oferta</button><button class="btn small ${state.produtoFiltros.maisVendido?'primary':''}" data-prod-flag="maisVendido">Mais vendido</button></div></section>`;
 }
 
-function filteredProducts() {
+function filteredProducts(includeInactive = false) {
   const f = state.produtoFiltros;
-  return activeProducts().filter(p => {
+  const base = includeInactive ? state.produtos : activeProducts();
+  return base.filter(p => {
     const t = f.texto.toLowerCase();
     return (!t || (p.nome||'').toLowerCase().includes(t) || (p.codigo||p.ref||p.id||'').toLowerCase().includes(t)) &&
       (!f.marca || p.marca === f.marca) && (!f.destaque || p.destaque) && (!f.oferta || p.oferta) && (!f.maisVendido || p.maisVendido);
@@ -220,7 +321,7 @@ function filteredProducts() {
 }
 
 function productListHtml(list, admin = false) {
-  const products = admin ? list.sort(sortProducts) : filteredProducts();
+  const products = (admin ? filteredProducts(true) : filteredProducts()).sort(sortProducts);
   if (!products.length) return '<div class="empty">Nenhum produto encontrado.</div>';
   return `<div class="list">${products.map(p => productCard(p, admin)).join('')}</div>`;
 }
@@ -240,30 +341,37 @@ function productCard(p, admin = false) {
 function renderCatalogo() {
   const clientes = ownClientes();
   const total = cartTotal();
+  const itemCount = Object.values(state.cart).filter(i => Number(i.qty || 0) > 0).length;
   return head('Catálogo', 'Monte pedidos rapidamente pelo celular.') +
-    `<section class="card"><label>Cliente<select id="pedido-cliente"><option value="">Selecione cliente da carteira</option>${clientes.map(c=>`<option value="${c.id}" ${state.pedidoClienteId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('')}</select></label><label>Observações Comerciais<textarea id="pedido-obs" placeholder="Prazo, frete, condições especiais, entrega parcial..."></textarea></label></section>` + productFiltersHtml() + productListHtml(activeProducts(), false) +
-    `<div class="cart-bar"><div><strong>${money(total)}</strong><div>${Object.keys(state.cart).length} item(ns) no pedido</div></div><button class="btn" data-send-order>Enviar para aprovação</button></div>`;
+    `<section class="card"><label>Cliente<select id="pedido-cliente"><option value="">Selecione cliente da carteira</option>${clientes.map(c=>`<option value="${c.id}" ${state.pedidoClienteId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('')}</select></label><label>Observações Comerciais<textarea id="pedido-obs" placeholder="Prazo, frete, condições especiais, entrega parcial...">${escapeHtml(state.pedidoObs)}</textarea></label><button class="btn small" data-save-draft>Salvar rascunho</button></section>` + productFiltersHtml() + productListHtml(activeProducts(), false) +
+    `<div class="cart-bar"><div><strong>${money(total)}</strong><div>${itemCount} item(ns) no pedido</div></div><button class="btn" data-send-order>Enviar para aprovação</button></div>`;
 }
 
 function cartTotal() { return Object.values(state.cart).reduce((s,i)=>s+Number(i.subtotal||0),0); }
 
 function renderCarteira() {
-  const t = state.clienteFiltro.toLowerCase();
+  const t = (state.clienteFiltro || '').toLowerCase();
   const list = ownClientes().filter(c => !t || (c.nome||'').toLowerCase().includes(t) || (c.doc||c.cnpj||'').toLowerCase().includes(t));
-  return head('Minha Carteira', 'Somente clientes atribuídos a você.') + `<section class="card"><label>Pesquisar cliente<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro==='todos'?'':state.clienteFiltro)}"></label></section>` + clientesList(list, false);
+  return head('Minha Carteira', 'Somente clientes atribuídos a você.') + `<section class="card"><label>Pesquisar cliente<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro)}"></label></section>` + clientesList(list, false);
 }
 
 function renderAdminClientes() {
+  const edit = state.clienteEditId ? state.clientes.find(c => c.id === state.clienteEditId) : {};
   return head('Clientes', 'Carteira geral, atribuição, transferência e aprovação de novos clientes.') +
     `<section class="card"><div class="card-title"><h3>Solicitações pendentes</h3></div>${solicitacoesHtml(state.solicitacoes)}</section>` +
-    `<section class="card"><div class="form-row"><label>Pesquisar<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro==='todos'?'':state.clienteFiltro)}"></label><label>Filtrar responsável<select id="cliente-resp"><option value="todos">Todos</option><option value="geral">Carteira geral</option>${state.vendedores.map(v=>`<option value="${v.id}" ${state.clienteFiltro===v.id?'selected':''}>${escapeHtml(v.nome||v.email)}</option>`).join('')}</select></label></div><button class="btn primary full" data-new-client>Novo cliente</button></section>` + clientesList(filtrarClientesAdmin(), true);
+    `<section class="card"><div class="form-row"><label>Pesquisar<input id="cliente-search" placeholder="Nome, CNPJ ou telefone" value="${escapeHtml(state.clienteFiltro)}"></label><label>Filtrar responsável<select id="cliente-resp"><option value="todos" ${state.clienteResponsavel==='todos'?'selected':''}>Todos</option><option value="geral" ${state.clienteResponsavel==='geral'?'selected':''}>Carteira geral</option>${state.vendedores.map(v=>`<option value="${v.id}" ${state.clienteResponsavel===v.id?'selected':''}>${escapeHtml(v.nome||v.email)}</option>`).join('')}</select></label></div><button class="btn primary full" data-new-client>Novo cliente</button></section>` +
+    (state.clienteFormOpen ? clienteForm(edit || {}) : '') + clientesList(filtrarClientesAdmin(), true);
+}
+
+function clienteForm(c = {}) {
+  return `<section class="card" id="client-form-card"><div class="card-title"><h3>${c.id ? 'Editar cliente' : 'Novo cliente'}</h3></div><input type="hidden" id="cliente-id" value="${escapeHtml(c.id||'')}"><label>Nome / Razão social<input id="cliente-nome" value="${escapeHtml(c.nome||c.razaoSocial||'')}"></label><div class="form-row"><label>CNPJ / CPF<input id="cliente-doc" value="${escapeHtml(c.doc||c.cnpj||'')}"></label><label>Telefone<input id="cliente-tel" value="${escapeHtml(c.tel||c.telefone||'')}"></label></div><div class="form-row"><label>Cidade<input id="cliente-cidade" value="${escapeHtml(c.cidade||'')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado||'')}"></label></div><label>Vendedor responsável<select id="cliente-vendedor"><option value="">Carteira geral</option>${state.vendedores.map(v=>`<option value="${v.id}" ${c.vendedorId===v.id?'selected':''}>${escapeHtml(v.nome||v.email)}</option>`).join('')}</select></label><label>Observações<textarea id="cliente-obs">${escapeHtml(c.obs || '')}</textarea></label><div class="actions"><button class="btn primary" data-save-cliente>Salvar cliente</button><button class="btn" data-cancel-cliente>Cancelar</button></div></section>`;
 }
 
 function filtrarClientesAdmin() {
-  const search = state.clienteFiltro && !['todos','geral',...state.vendedores.map(v=>v.id)].includes(state.clienteFiltro) ? state.clienteFiltro.toLowerCase() : '';
+  const search = (state.clienteFiltro || '').toLowerCase();
   let list = state.clientes;
-  if (state.clienteFiltro === 'geral') list = list.filter(c => !c.vendedorId);
-  if (state.vendedores.some(v => v.id === state.clienteFiltro)) list = list.filter(c => c.vendedorId === state.clienteFiltro);
+  if (state.clienteResponsavel === 'geral') list = list.filter(c => !c.vendedorId);
+  if (state.vendedores.some(v => v.id === state.clienteResponsavel)) list = list.filter(c => c.vendedorId === state.clienteResponsavel);
   if (search) list = list.filter(c => (c.nome||'').toLowerCase().includes(search) || (c.doc||c.cnpj||'').toLowerCase().includes(search) || (c.tel||c.telefone||'').includes(search));
   return list;
 }
@@ -319,31 +427,49 @@ async function saveProduct() {
   toast('Produto salvo.');
 }
 
-async function sendOrder() {
+async function saveDraft() { return saveOrder('rascunho'); }
+async function sendOrder() { return saveOrder('enviado'); }
+
+async function saveOrder(status) {
   if (!state.pedidoClienteId) return toast('Selecione um cliente.');
   const cliente = state.clientes.find(c => c.id === state.pedidoClienteId);
-  const itens = Object.values(state.cart);
+  const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
   if (!cliente || !itens.length) return toast('Adicione produtos ao pedido.');
   const numero = `PS-${Date.now().toString(36).toUpperCase()}`;
   const pedido = { numero, vendedorId: state.user.uid, vendedorNome: vendedorNome(state.user.uid), clienteId: cliente.id,
     cliente: { id: cliente.id, nome: cliente.nome || cliente.razaoSocial, doc: cliente.doc || cliente.cnpj, telefone: cliente.tel || cliente.telefone, cidade: cliente.cidade, estado: cliente.estado },
-    itens, observacoes: $('#pedido-obs')?.value.trim() || '', total: cartTotal(), status: 'enviado', historico: [statusHistory('enviado','Pedido enviado para aprovação')],
-    criadoEm: fb.serverTimestamp(), enviadoEm: fb.serverTimestamp(), atualizadoEm: fb.serverTimestamp() };
+    itens, observacoes: state.pedidoObs.trim(), total: cartTotal(), status, historico: [statusHistory(status, status === 'rascunho' ? 'Pedido salvo como rascunho' : 'Pedido enviado para aprovação')],
+    criadoEm: fb.serverTimestamp(), atualizadoEm: fb.serverTimestamp() };
+  if (status === 'enviado') pedido.enviadoEm = fb.serverTimestamp();
   await fb.addDoc(col('pedidos'), pedido);
-  state.cart = {}; state.pedidoClienteId = '';
-  toast('Pedido enviado para aprovação.');
+  state.cart = {}; state.pedidoClienteId = ''; state.pedidoObs = '';
+  toast(status === 'rascunho' ? 'Rascunho salvo.' : 'Pedido enviado para aprovação.');
   setPage('meus');
 }
 
 async function changeOrderStatus(id, status) {
   const p = state.pedidos.find(x=>x.id===id); if (!p) return;
+  const allowed = { enviado: ['aprovado','rejeitado'], aprovado: ['faturado'], rascunho: ['enviado','cancelado'] };
+  if (!allowed[p.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[p.status] || p.status} → ${STATUS[status] || status}.`);
   const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(p.historico||[]), statusHistory(status)] };
-  if (status === 'aprovado') update.aprovadoEm = fb.serverTimestamp();
+  if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(p); update.estoqueBaixado = true; }
   if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
   if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
+  if (status === 'enviado') update.enviadoEm = fb.serverTimestamp();
   await fb.updateDoc(ref('pedidos', id), update);
-  await notifyUser(p.vendedorId, `Pedido ${STATUS[status]}`, `Pedido #${String(p.numero||id).slice(-8)} foi ${STATUS[status].toLowerCase()}.`, id);
+  if (isAdmin()) await notifyUser(p.vendedorId, `Pedido ${STATUS[status]}`, `Pedido #${String(p.numero||id).slice(-8)} foi ${STATUS[status].toLowerCase()}.`, id);
   toast(`Pedido ${STATUS[status].toLowerCase()}.`);
+}
+
+async function baixarEstoqueDoPedido(p) {
+  if (p.estoqueBaixado) return;
+  const batch = fb.writeBatch(db);
+  (p.itens || []).forEach(item => {
+    const prod = state.produtos.find(x => x.id === item.prodId);
+    if (!prod) return;
+    batch.update(ref('produtos', item.prodId), { estoque: Math.max(0, Number(prod.estoque || 0) - Number(item.qty || 0)), atualizadoEm: fb.serverTimestamp() });
+  });
+  await batch.commit();
 }
 
 async function approveClientRequest(id, approved) {
@@ -365,6 +491,8 @@ function bindPageEvents() {
   $$('[data-approve]').forEach(b => b.onclick = () => changeOrderStatus(b.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(b => b.onclick = () => changeOrderStatus(b.dataset.reject, 'rejeitado'));
   $$('[data-bill]').forEach(b => b.onclick = () => changeOrderStatus(b.dataset.bill, 'faturado'));
+  $$('[data-send-draft]').forEach(b => b.onclick = () => changeOrderStatus(b.dataset.sendDraft, 'enviado'));
+  $$('[data-cancel-order]').forEach(b => b.onclick = () => changeOrderStatus(b.dataset.cancelOrder, 'cancelado'));
   $('[data-open-product-form]')?.addEventListener('click', () => { $('#product-form-card').style.display = 'block'; $('#product-form-card').innerHTML = produtoForm(); bindPageEvents(); });
   $('[data-cancel-product]')?.addEventListener('click', () => { $('#product-form-card').style.display = 'none'; });
   $('[data-save-product]')?.addEventListener('click', saveProduct);
@@ -376,17 +504,21 @@ function bindPageEvents() {
   $$('[data-qty]').forEach(b => b.onclick = () => updateQty(b.dataset.qty, Number(b.dataset.delta)));
   $$('[data-discount]').forEach(i => i.oninput = () => updateDiscount(i.dataset.discount, Number(i.value)));
   $('#pedido-cliente')?.addEventListener('change', e => { state.pedidoClienteId = e.target.value; });
+  $('#pedido-obs')?.addEventListener('input', e => { state.pedidoObs = e.target.value; });
+  $('[data-save-draft]')?.addEventListener('click', saveDraft);
   $('[data-send-order]')?.addEventListener('click', sendOrder);
   $$('[data-start-order]').forEach(b => b.onclick = () => { state.pedidoClienteId = b.dataset.startOrder; setPage('catalogo'); });
-  $('#cliente-search')?.addEventListener('input', e => { state.clienteFiltro = e.target.value || 'todos'; renderPage(); });
-  $('#cliente-resp')?.addEventListener('change', e => { state.clienteFiltro = e.target.value; renderPage(); });
+  $('#cliente-search')?.addEventListener('input', e => { state.clienteFiltro = e.target.value; renderPage(); });
+  $('#cliente-resp')?.addEventListener('change', e => { state.clienteResponsavel = e.target.value; renderPage(); });
   $$('[data-approve-client-request]').forEach(b => b.onclick = () => approveClientRequest(b.dataset.approveClientRequest, true));
   $$('[data-reject-client-request]').forEach(b => b.onclick = () => approveClientRequest(b.dataset.rejectClientRequest, false));
   $('[data-send-client-request]')?.addEventListener('click', sendClientRequest);
   $('[data-create-vend]')?.addEventListener('click', createVendedor);
   $$('[data-toggle-vend]').forEach(b => b.onclick = () => toggleVendedor(b.dataset.toggleVend));
-  $('[data-new-client]')?.addEventListener('click', () => upsertCliente());
-  $$('[data-edit-client]').forEach(b => b.onclick = () => upsertCliente(b.dataset.editClient));
+  $('[data-new-client]')?.addEventListener('click', () => { state.clienteFormOpen = true; state.clienteEditId = ''; renderPage(); });
+  $('[data-cancel-cliente]')?.addEventListener('click', () => { state.clienteFormOpen = false; state.clienteEditId = ''; renderPage(); });
+  $('[data-save-cliente]')?.addEventListener('click', () => upsertCliente($('#cliente-id')?.value || ''));
+  $$('[data-edit-client]').forEach(b => b.onclick = () => { state.clienteFormOpen = true; state.clienteEditId = b.dataset.editClient; renderPage(); });
   $$('[data-transfer-client]').forEach(b => b.onclick = () => transferCliente(b.dataset.transferClient));
   $$('[data-delete-client]').forEach(b => b.onclick = () => deleteCliente(b.dataset.deleteClient));
   $('[data-save-meta]')?.addEventListener('click', saveMetaGeral);
@@ -423,17 +555,18 @@ async function sendClientRequest() {
 
 async function upsertCliente(id = '') {
   const atual = id ? state.clientes.find(c => c.id === id) : {};
-  const nome = prompt('Nome / Razão social', atual?.nome || atual?.razaoSocial || '');
-  if (!nome) return;
-  const docCli = prompt('CNPJ / CPF', atual?.doc || atual?.cnpj || '') || '';
-  const tel = prompt('Telefone / WhatsApp', atual?.tel || atual?.telefone || '') || '';
-  const cidade = prompt('Cidade', atual?.cidade || '') || '';
-  const estado = (prompt('Estado (UF)', atual?.estado || '') || '').toUpperCase();
-  const vendedorId = prompt('UID do vendedor responsável (vazio = carteira geral)', atual?.vendedorId || '') || '';
+  const nome = $('#cliente-nome')?.value.trim() || '';
+  if (!nome) return toast('Informe o nome/razão social do cliente.');
+  const docCli = $('#cliente-doc')?.value.trim() || '';
+  const tel = $('#cliente-tel')?.value.trim() || '';
+  const cidade = $('#cliente-cidade')?.value.trim() || '';
+  const estado = ($('#cliente-estado')?.value.trim() || '').toUpperCase();
+  const vendedorId = $('#cliente-vendedor')?.value || '';
   const vendedorNomeResp = vendedorId ? vendedorNome(vendedorId) : '';
-  const data = { nome, razaoSocial: nome, doc: docCli, cnpj: docCli, tel, telefone: tel, cidade, estado, vendedorId, vendedorNome: vendedorNomeResp, status: atual?.status || 'ativo', atualizadoEm: fb.serverTimestamp() };
+  const data = { nome, razaoSocial: nome, doc: docCli, cnpj: docCli, tel, telefone: tel, cidade, estado, vendedorId, vendedorNome: vendedorNomeResp, obs: $('#cliente-obs')?.value.trim() || '', status: atual?.status || 'ativo', atualizadoEm: fb.serverTimestamp() };
   if (id) await fb.updateDoc(ref('clientes', id), data); else await fb.addDoc(col('clientes'), { ...data, criadoEm: fb.serverTimestamp() });
   if (vendedorId) await notifyUser(vendedorId, 'Cliente atribuído', `${nome} foi atribuído à sua carteira.`);
+  state.clienteFormOpen = false; state.clienteEditId = '';
   toast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
 }
 
@@ -468,8 +601,9 @@ function downloadModel() { const csv = 'codigo,nome,descricao,marca,categoria,pr
 async function boot() {
   $('#login-button').onclick = login;
   $('#login-password').onkeydown = e => { if (e.key === 'Enter') login(); };
-  $('#logout-button').onclick = () => fb.signOut(auth);
+  $('#logout-button').onclick = logout;
   $('#menu-button').onclick = openMenu; $('#sidebar-backdrop').onclick = closeMenu;
+  window.addEventListener('resize', syncSidebarForViewport);
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.deferredInstall = e; $('#install-button').style.display = 'inline-block'; });
   $('#install-button').onclick = async () => { if (state.deferredInstall) { state.deferredInstall.prompt(); state.deferredInstall = null; } };
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
@@ -485,18 +619,48 @@ async function login() {
   });
 }
 
+async function logout() {
+  resetSessionState();
+  showLogin();
+  await fb.signOut(auth);
+}
+
 async function onAuth(user) {
-  state.unsubs.forEach(fn => fn()); state.unsubs = []; state.user = user;
-  if (!user) { state.profile = null; state.role = null; $('#auth').classList.remove('hidden'); $('#app').classList.add('hidden'); $('#login-button').textContent='Entrar'; $('#login-button').disabled=false; setLoading(true); return; }
-  const snap = await fb.getDoc(ref('users', user.uid));
-  if (!snap.exists()) { await fb.signOut(auth); $('#auth-error').textContent='Usuário sem cadastro no sistema.'; $('#auth-error').classList.remove('hidden'); return; }
-  state.profile = { id: user.uid, ...snap.data() }; state.role = state.profile.role || 'vendedor';
-  if (state.profile.bloqueado) { await fb.signOut(auth); $('#auth-error').textContent='Acesso bloqueado. Fale com o administrador.'; $('#auth-error').classList.remove('hidden'); return; }
-  $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.body.classList.remove('with-sidebar');
-  $('#role-pill').textContent = isAdmin() ? 'ADMIN' : 'VENDEDOR'; $('#role-pill').className = `role-pill ${state.role}`;
-  $('#user-name').textContent = state.profile.nome || user.email;
-  state.page = isAdmin() ? 'resumo' : 'inicio';
-  startListeners(); renderNav(); renderPage(); setLoading(true); toast('Conectado com sucesso.');
+  resetSessionState();
+  if (!user) { showLogin(); return; }
+
+  hideProtectedUi();
+  try {
+    const snap = await fb.getDoc(ref('users', user.uid));
+    if (!snap.exists()) {
+      await fb.signOut(auth);
+      showLogin('Usuário sem cadastro no sistema.');
+      return;
+    }
+
+    const profile = { id: user.uid, ...snap.data() };
+    if (profile.bloqueado) {
+      await fb.signOut(auth);
+      showLogin('Acesso bloqueado. Fale com o administrador.');
+      return;
+    }
+
+    state.user = user;
+    state.profile = profile;
+    state.role = profile.role || 'vendedor';
+    state.page = isAdmin() ? 'resumo' : 'inicio';
+    $('#auth').classList.add('hidden');
+    $('#app').classList.remove('hidden');
+    syncSidebarForViewport();
+    $('#role-pill').textContent = isAdmin() ? 'ADMIN' : 'VENDEDOR';
+    $('#role-pill').className = `role-pill ${state.role}`;
+    $('#user-name').textContent = state.profile.nome || user.email;
+    startListeners(); renderNav(); renderPage(); setLoading(true); toast('Conectado com sucesso.');
+  } catch (err) {
+    console.error(err);
+    await fb.signOut(auth);
+    showLogin('Não foi possível validar sua sessão. Faça login novamente.');
+  }
 }
 
 boot();

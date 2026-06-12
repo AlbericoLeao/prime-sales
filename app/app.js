@@ -38,9 +38,72 @@ function statusHistory(status, note = '') {
   return { status, note, at: new Date().toISOString(), by: state.user?.uid || '', byName: state.profile?.nome || state.user?.email || '' };
 }
 
+function resetSessionState() {
+  state.unsubs.forEach(fn => fn());
+  state.user = null;
+  state.profile = null;
+  state.role = null;
+  state.page = 'resumo';
+  state.unsubs = [];
+  state.pedidos = [];
+  state.produtos = [];
+  state.vendedores = [];
+  state.clientes = [];
+  state.solicitacoes = [];
+  state.metas = {};
+  state.metasVend = {};
+  state.notificacoes = [];
+  state.pedidoClienteId = '';
+  state.pedidoObs = '';
+  state.cart = {};
+  state.produtoFiltros = { texto: '', marca: '', destaque: false, oferta: false, maisVendido: false };
+  state.pedidoFiltro = 'todos';
+  state.clienteFiltro = '';
+  state.clienteResponsavel = 'todos';
+  state.clienteFormOpen = false;
+  state.clienteEditId = '';
+  $('#content').innerHTML = '';
+  $('#main-nav').innerHTML = '';
+  $('#bottom-nav').innerHTML = '';
+}
+
+function showLogin(message = '') {
+  document.body.classList.remove('with-sidebar');
+  $('#sidebar')?.classList.remove('open');
+  $('#sidebar-backdrop')?.classList.add('hidden');
+  $('#app').classList.add('hidden');
+  $('#auth').classList.remove('hidden');
+  $('#login-button').textContent = 'Entrar';
+  $('#login-button').disabled = false;
+  if (message) {
+    $('#auth-error').textContent = message;
+    $('#auth-error').classList.remove('hidden');
+  } else {
+    $('#auth-error').classList.add('hidden');
+  }
+  setLoading(true);
+}
+
+function hideProtectedUi() {
+  $('#app').classList.add('hidden');
+  $('#auth').classList.add('hidden');
+  document.body.classList.remove('with-sidebar');
+  $('#sidebar')?.classList.remove('open');
+  $('#sidebar-backdrop')?.classList.add('hidden');
+}
+
 function setLoading(done = true) {
   $('#splash')?.classList.toggle('hide', done);
   setTimeout(() => $('#splash')?.classList.add('hidden'), 420);
+}
+
+function isDesktopNav() { return window.matchMedia('(min-width: 760px)').matches; }
+
+function syncSidebarForViewport() {
+  const desktop = isDesktopNav();
+  document.body.classList.toggle('with-sidebar', desktop && !!state.user);
+  $('#sidebar')?.classList.toggle('open', desktop);
+  $('#sidebar-backdrop')?.classList.add('hidden');
 }
 
 function setPage(page) {
@@ -48,22 +111,34 @@ function setPage(page) {
   $('#page-subtitle').textContent = navItems().find(i => i[0] === page)?.[2] || 'Prime Sales';
   renderNav();
   renderPage();
-  closeMenu();
+  if (!isDesktopNav()) closeMenu();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function navItems() { return isAdmin() ? ADMIN_NAV : VEND_NAV; }
+
+function handleNavClick(page) {
+  console.debug('[PrimeSales] nav click', page);
+  setPage(page);
+}
 
 function renderNav() {
   const items = navItems();
   const html = items.map(([key, icon, label]) => `<button data-page="${key}" class="${state.page === key ? 'active' : ''}"><b>${icon}</b><span>${label}</span></button>`).join('');
   $('#main-nav').innerHTML = html;
   $('#bottom-nav').innerHTML = html;
-  $$('#main-nav button,#bottom-nav button').forEach(btn => btn.addEventListener('click', () => setPage(btn.dataset.page)));
+  $$('#main-nav button,#bottom-nav button').forEach(btn => btn.addEventListener('click', () => handleNavClick(btn.dataset.page)));
 }
 
-function openMenu() { $('#sidebar').classList.add('open'); $('#sidebar-backdrop').classList.remove('hidden'); }
-function closeMenu() { $('#sidebar').classList.remove('open'); $('#sidebar-backdrop').classList.add('hidden'); }
+function openMenu() {
+  $('#sidebar').classList.add('open');
+  if (!isDesktopNav()) $('#sidebar-backdrop').classList.remove('hidden');
+}
+function closeMenu() {
+  if (isDesktopNav()) { syncSidebarForViewport(); return; }
+  $('#sidebar').classList.remove('open');
+  $('#sidebar-backdrop').classList.add('hidden');
+}
 
 async function notifyUser(uid, titulo, texto, pedidoId = '') {
   if (!uid) return;
@@ -516,8 +591,9 @@ function downloadModel() { const csv = 'codigo,nome,descricao,marca,categoria,pr
 async function boot() {
   $('#login-button').onclick = login;
   $('#login-password').onkeydown = e => { if (e.key === 'Enter') login(); };
-  $('#logout-button').onclick = () => fb.signOut(auth);
+  $('#logout-button').onclick = logout;
   $('#menu-button').onclick = openMenu; $('#sidebar-backdrop').onclick = closeMenu;
+  window.addEventListener('resize', syncSidebarForViewport);
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.deferredInstall = e; $('#install-button').style.display = 'inline-block'; });
   $('#install-button').onclick = async () => { if (state.deferredInstall) { state.deferredInstall.prompt(); state.deferredInstall = null; } };
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
@@ -533,18 +609,48 @@ async function login() {
   });
 }
 
+async function logout() {
+  resetSessionState();
+  showLogin();
+  await fb.signOut(auth);
+}
+
 async function onAuth(user) {
-  state.unsubs.forEach(fn => fn()); state.unsubs = []; state.user = user;
-  if (!user) { state.profile = null; state.role = null; $('#auth').classList.remove('hidden'); $('#app').classList.add('hidden'); $('#login-button').textContent='Entrar'; $('#login-button').disabled=false; setLoading(true); return; }
-  const snap = await fb.getDoc(ref('users', user.uid));
-  if (!snap.exists()) { await fb.signOut(auth); $('#auth-error').textContent='Usuário sem cadastro no sistema.'; $('#auth-error').classList.remove('hidden'); return; }
-  state.profile = { id: user.uid, ...snap.data() }; state.role = state.profile.role || 'vendedor';
-  if (state.profile.bloqueado) { await fb.signOut(auth); $('#auth-error').textContent='Acesso bloqueado. Fale com o administrador.'; $('#auth-error').classList.remove('hidden'); return; }
-  $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); document.body.classList.remove('with-sidebar');
-  $('#role-pill').textContent = isAdmin() ? 'ADMIN' : 'VENDEDOR'; $('#role-pill').className = `role-pill ${state.role}`;
-  $('#user-name').textContent = state.profile.nome || user.email;
-  state.page = isAdmin() ? 'resumo' : 'inicio';
-  startListeners(); renderNav(); renderPage(); setLoading(true); toast('Conectado com sucesso.');
+  resetSessionState();
+  if (!user) { showLogin(); return; }
+
+  hideProtectedUi();
+  try {
+    const snap = await fb.getDoc(ref('users', user.uid));
+    if (!snap.exists()) {
+      await fb.signOut(auth);
+      showLogin('Usuário sem cadastro no sistema.');
+      return;
+    }
+
+    const profile = { id: user.uid, ...snap.data() };
+    if (profile.bloqueado) {
+      await fb.signOut(auth);
+      showLogin('Acesso bloqueado. Fale com o administrador.');
+      return;
+    }
+
+    state.user = user;
+    state.profile = profile;
+    state.role = profile.role || 'vendedor';
+    state.page = isAdmin() ? 'resumo' : 'inicio';
+    $('#auth').classList.add('hidden');
+    $('#app').classList.remove('hidden');
+    syncSidebarForViewport();
+    $('#role-pill').textContent = isAdmin() ? 'ADMIN' : 'VENDEDOR';
+    $('#role-pill').className = `role-pill ${state.role}`;
+    $('#user-name').textContent = state.profile.nome || user.email;
+    startListeners(); renderNav(); renderPage(); setLoading(true); toast('Conectado com sucesso.');
+  } catch (err) {
+    console.error(err);
+    await fb.signOut(auth);
+    showLogin('Não foi possível validar sua sessão. Faça login novamente.');
+  }
 }
 
 boot();

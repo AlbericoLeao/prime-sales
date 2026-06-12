@@ -1,0 +1,15 @@
+{
+  "name": "Prime Sales",
+  "short_name": "Prime Sales",
+  "description": "Sistema de Gestão Comercial e Força de Vendas da Prime Representações.",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "public/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

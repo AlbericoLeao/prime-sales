@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function role() { return signedIn() && me().exists() ? me().data.role : null; }
+    function active() { return signedIn() && me().exists() && me().data.bloqueado != true; }
+    function admin() { return active() && role() == 'admin'; }
+    function vendedor() { return active() && role() == 'vendedor'; }
+    function owner(uid) { return active() && request.auth.uid == uid; }
+
+    match /users/{uid} {
+      allow read: if admin() || owner(uid);
+      allow create, update, delete: if admin();
+    }
+
+    match /produtos/{id} {
+      allow read: if active();
+      allow create, update, delete: if admin();
+    }
+
+    match /clientes/{id} {
+      allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
+      allow create, update, delete: if admin();
+    }
+
+    match /solicitacoesClientes/{id} {
+      allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
+      allow create: if vendedor() && request.resource.data.vendedorId == request.auth.uid && request.resource.data.status == 'pendente';
+      allow update, delete: if admin();
+    }
+
+    match /pedidos/{id} {
+      allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
+      allow create: if vendedor() && request.resource.data.vendedorId == request.auth.uid && request.resource.data.status == 'enviado';
+      allow update: if admin();
+      allow delete: if false;
+    }
+
+    match /metas/{id} {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    match /metas-vend/{id} {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    match /notificacoes/{id} {
+      allow read, update: if active() && resource.data.uid == request.auth.uid;
+      allow create: if admin();
+      allow delete: if admin();
+    }
+  }
+}

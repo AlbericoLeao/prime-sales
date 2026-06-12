@@ -366,25 +366,63 @@ async function changeOrderStatus(id, status) {
   const p = state.pedidos.find(x=>x.id===id); if (!p) return;
   const allowed = { enviado: ['aprovado','rejeitado'], aprovado: ['faturado'], rascunho: ['enviado','cancelado'] };
   if (!allowed[p.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[p.status] || p.status} → ${STATUS[status] || status}.`);
-  const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(p.historico||[]), statusHistory(status)] };
-  if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(p); update.estoqueBaixado = true; }
-  if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
-  if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
-  if (status === 'enviado') update.enviadoEm = fb.serverTimestamp();
-  await fb.updateDoc(ref('pedidos', id), update);
-  if (isAdmin()) await notifyUser(p.vendedorId, `Pedido ${STATUS[status]}`, `Pedido #${String(p.numero||id).slice(-8)} foi ${STATUS[status].toLowerCase()}.`, id);
+  let updatedPedido = p;
+  if (status === 'aprovado') {
+    updatedPedido = await aprovarPedidoComEstoque(id);
+  } else {
+    const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(p.historico||[]), statusHistory(status)] };
+    if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
+    if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
+    if (status === 'enviado') update.enviadoEm = fb.serverTimestamp();
+    await fb.updateDoc(ref('pedidos', id), update);
+  }
+  if (isAdmin()) await notifyUser(updatedPedido.vendedorId, `Pedido ${STATUS[status]}`, `Pedido #${String(updatedPedido.numero||id).slice(-8)} foi ${STATUS[status].toLowerCase()}.`, id);
   toast(`Pedido ${STATUS[status].toLowerCase()}.`);
 }
 
-async function baixarEstoqueDoPedido(p) {
-  if (p.estoqueBaixado) return;
-  const batch = fb.writeBatch(db);
-  (p.itens || []).forEach(item => {
-    const prod = state.produtos.find(x => x.id === item.prodId);
-    if (!prod) return;
-    batch.update(ref('produtos', item.prodId), { estoque: Math.max(0, Number(prod.estoque || 0) - Number(item.qty || 0)), atualizadoEm: fb.serverTimestamp() });
+function estoquePorProduto(itens = []) {
+  return itens.reduce((acc, item) => {
+    const prodId = item.prodId;
+    const qty = Number(item.qty || 0);
+    if (prodId && qty > 0) acc[prodId] = (acc[prodId] || 0) + qty;
+    return acc;
+  }, {});
+}
+
+async function aprovarPedidoComEstoque(id) {
+  const pedidoRef = ref('pedidos', id);
+  const historyEntry = statusHistory('aprovado');
+  return fb.runTransaction(db, async transaction => {
+    const pedidoSnap = await transaction.get(pedidoRef);
+    if (!pedidoSnap.exists()) throw new Error('Pedido não encontrado.');
+    const pedido = { id, ...pedidoSnap.data() };
+    if (pedido.status !== 'enviado') throw new Error('Pedido não está mais aguardando aprovação.');
+    if (pedido.estoqueBaixado) throw new Error('Estoque deste pedido já foi baixado.');
+
+    const estoqueItens = estoquePorProduto(pedido.itens);
+    const produtoRefs = Object.keys(estoqueItens).map(prodId => ref('produtos', prodId));
+    const produtoSnaps = await Promise.all(produtoRefs.map(produtoRef => transaction.get(produtoRef)));
+
+    produtoSnaps.forEach((produtoSnap, idx) => {
+      if (!produtoSnap.exists()) return;
+      const prodId = produtoRefs[idx].id;
+      const estoqueAtual = Number(produtoSnap.data().estoque || 0);
+      transaction.update(produtoRefs[idx], {
+        estoque: Math.max(0, estoqueAtual - estoqueItens[prodId]),
+        atualizadoEm: fb.serverTimestamp()
+      });
+    });
+
+    const update = {
+      status: 'aprovado',
+      atualizadoEm: fb.serverTimestamp(),
+      aprovadoEm: fb.serverTimestamp(),
+      estoqueBaixado: true,
+      historico: [...(pedido.historico || []), historyEntry]
+    };
+    transaction.update(pedidoRef, update);
+    return { ...pedido, ...update };
   });
-  await batch.commit();
 }
 
 async function approveClientRequest(id, approved) {

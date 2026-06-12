@@ -441,25 +441,55 @@ async function changeOrderStatus(id, status) {
   const p = state.pedidos.find(x=>x.id===id); if (!p) return;
   const allowed = { enviado: ['aprovado','rejeitado'], aprovado: ['faturado'], rascunho: ['enviado','cancelado'] };
   if (!allowed[p.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[p.status] || p.status} → ${STATUS[status] || status}.`);
-  const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(p.historico||[]), statusHistory(status)] };
-  if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(p); update.estoqueBaixado = true; }
-  if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
-  if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
-  if (status === 'enviado') update.enviadoEm = fb.serverTimestamp();
-  await fb.updateDoc(ref('pedidos', id), update);
+  if (status === 'aprovado') {
+    await approveOrderWithStock(id);
+  } else {
+    const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(p.historico||[]), statusHistory(status)] };
+    if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
+    if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
+    if (status === 'enviado') update.enviadoEm = fb.serverTimestamp();
+    await fb.updateDoc(ref('pedidos', id), update);
+  }
   if (isAdmin()) await notifyUser(p.vendedorId, `Pedido ${STATUS[status]}`, `Pedido #${String(p.numero||id).slice(-8)} foi ${STATUS[status].toLowerCase()}.`, id);
   toast(`Pedido ${STATUS[status].toLowerCase()}.`);
 }
 
-async function baixarEstoqueDoPedido(p) {
-  if (p.estoqueBaixado) return;
-  const batch = fb.writeBatch(db);
-  (p.itens || []).forEach(item => {
-    const prod = state.produtos.find(x => x.id === item.prodId);
-    if (!prod) return;
-    batch.update(ref('produtos', item.prodId), { estoque: Math.max(0, Number(prod.estoque || 0) - Number(item.qty || 0)), atualizadoEm: fb.serverTimestamp() });
+async function approveOrderWithStock(id) {
+  await fb.runTransaction(db, async transaction => {
+    const pedidoRef = ref('pedidos', id);
+    const pedidoSnap = await transaction.get(pedidoRef);
+    if (!pedidoSnap.exists()) throw new Error('Pedido não encontrado.');
+    const pedido = pedidoSnap.data();
+    if (pedido.status !== 'enviado') throw new Error(`Transição inválida: ${STATUS[pedido.status] || pedido.status} → ${STATUS.aprovado}.`);
+
+    const itensPorProduto = (pedido.itens || []).reduce((acc, item) => {
+      if (!item.prodId) return acc;
+      acc[item.prodId] = (acc[item.prodId] || 0) + Number(item.qty || 0);
+      return acc;
+    }, {});
+    const produtos = await Promise.all(Object.entries(itensPorProduto).map(async ([prodId, qty]) => {
+      const produtoRef = ref('produtos', prodId);
+      const produtoSnap = await transaction.get(produtoRef);
+      return produtoSnap.exists() ? { ref: produtoRef, data: produtoSnap.data(), qty } : null;
+    }));
+
+    if (!pedido.estoqueBaixado) {
+      produtos.filter(Boolean).forEach(({ ref: produtoRef, data: produto, qty }) => {
+        transaction.update(produtoRef, {
+          estoque: Math.max(0, Number(produto.estoque || 0) - qty),
+          atualizadoEm: fb.serverTimestamp()
+        });
+      });
+    }
+
+    transaction.update(pedidoRef, {
+      status: 'aprovado',
+      aprovadoEm: fb.serverTimestamp(),
+      atualizadoEm: fb.serverTimestamp(),
+      estoqueBaixado: true,
+      historico: [...(pedido.historico || []), statusHistory('aprovado')]
+    });
   });
-  await batch.commit();
 }
 
 async function approveClientRequest(id, approved) {

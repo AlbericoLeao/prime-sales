@@ -11,11 +11,14 @@ const state = {
   pedidos: [],
   produtos: [],
   clientes: [],
+  vendedores: [],
   cart: {},
   pedidoClienteId: '',
   pedidoObs: '',
   pedidoFiltro: 'todos',
-  clienteFiltro: ''
+  clienteFiltro: '',
+  productEditId: '',
+  clientEditId: ''
 };
 
 const STATUS = {
@@ -51,11 +54,14 @@ function resetSessionState() {
   state.pedidos = [];
   state.produtos = [];
   state.clientes = [];
+  state.vendedores = [];
   state.cart = {};
   state.pedidoClienteId = '';
   state.pedidoObs = '';
   state.pedidoFiltro = 'todos';
   state.clienteFiltro = '';
+  state.productEditId = '';
+  state.clientEditId = '';
   $('#content').innerHTML = '';
   $('#main-nav').innerHTML = '';
   $('#bottom-nav').innerHTML = '';
@@ -135,6 +141,7 @@ function startListeners() {
   listen(pedidosQuery, docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
   listen(clientesQuery, docs => { state.clientes = docs.sort(byName); rerender(); });
   listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
+  if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
 }
 
 function rerender() {
@@ -173,11 +180,11 @@ function renderAdminPedidos() {
 }
 
 function renderAdminClientes() {
-  return head('Clientes', 'Carteiras atribuídas aos vendedores.') + clientesList(state.clientes, true);
+  return head('Clientes', 'Carteiras atribuídas aos vendedores.') + clienteForm() + clientesList(state.clientes, true);
 }
 
 function renderAdminProdutos() {
-  return head('Produtos', 'Produtos ativos disponíveis no catálogo.') + productList(activeProducts(), true);
+  return head('Produtos', 'Produtos ativos disponíveis no catálogo.') + produtoForm() + productList(state.produtos, true);
 }
 
 function renderCarteira() {
@@ -206,7 +213,7 @@ function renderMeusPedidos() {
 
 function clientesList(list, admin) {
   if (!list.length) return '<div class="empty">Nenhum cliente encontrado.</div>';
-  return `<div class="list">${list.map(c => `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(c.nome || c.razaoSocial || 'Cliente')}</div><div class="row-sub">${escapeHtml(c.doc || c.cnpj || '')} · ${escapeHtml(c.tel || c.telefone || '')}</div><div class="row-sub">${escapeHtml(c.cidade || '')} ${escapeHtml(c.estado || '')}</div></div><span class="badge ${c.status === 'inativo' ? 'rejeitado' : 'faturado'}">${escapeHtml(c.status || 'ativo')}</span></div><div class="row-sub">vendedorId: ${escapeHtml(c.vendedorId || 'sem vendedor')}</div>${admin ? '' : `<div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-start-order="${c.id}">Iniciar Pedido</button></div>`}</article>`).join('')}</div>`;
+  return `<div class="list">${list.map(c => `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(c.nome || c.razaoSocial || 'Cliente')}</div><div class="row-sub">${escapeHtml(c.doc || c.cnpj || '')} · ${escapeHtml(c.tel || c.telefone || '')}</div><div class="row-sub">${escapeHtml(c.cidade || '')} ${escapeHtml(c.estado || '')}</div></div><span class="badge ${c.status === 'inativo' ? 'rejeitado' : 'faturado'}">${escapeHtml(c.status || 'ativo')}</span></div><div class="row-sub">vendedorId: ${escapeHtml(c.vendedorId || 'sem vendedor')}</div>${admin ? `<div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-edit-client="${c.id}">Editar</button></div>` : `<div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-start-order="${c.id}">Iniciar Pedido</button></div>`}</article>`).join('')}</div>`;
 }
 
 function productList(list, admin) {
@@ -219,7 +226,18 @@ function productCard(p, admin) {
   const qty = state.cart[id]?.qty || 0;
   const price = Number(p.preco || 0);
   const subtotal = price * qty;
-  return `<article class="product-card"><div><div class="row-top"><div><div class="product-name">${escapeHtml(p.nome || 'Sem nome')}</div><div class="product-meta">${escapeHtml(productCode(p))} · ${escapeHtml(p.marca || 'Sem marca')} · Estoque ${Number(p.estoque || 0)}</div></div><div class="price">${money(price)}</div></div>${p.descricao ? `<div class="row-sub">${escapeHtml(p.descricao)}</div>` : ''}</div>${admin ? '' : `<div><div class="qty"><button type="button" data-qty="${id}" data-delta="-1">−</button><span>${qty}</span><button type="button" data-qty="${id}" data-delta="1">+</button></div><div class="row-sub">Desconto fixo: 0%</div><div class="row-top"><span class="row-sub">Subtotal</span><strong>${money(subtotal)}</strong></div></div>`}</article>`;
+  return `<article class="product-card"><div><div class="row-top"><div><div class="product-name">${escapeHtml(p.nome || 'Sem nome')}</div><div class="product-meta">${escapeHtml(productCode(p))} · ${escapeHtml(p.marca || 'Sem marca')} · Estoque ${Number(p.estoque || 0)}</div></div><div class="price">${money(price)}</div></div>${p.descricao ? `<div class="row-sub">${escapeHtml(p.descricao)}</div>` : ''}</div>${admin ? `<div class="actions"><button type="button" class="btn small" data-edit-product="${id}">Editar</button></div>` : `<div><div class="qty"><button type="button" data-qty="${id}" data-delta="-1">−</button><span>${qty}</span><button type="button" data-qty="${id}" data-delta="1">+</button></div><div class="row-sub">Desconto fixo: 0%</div><div class="row-top"><span class="row-sub">Subtotal</span><strong>${money(subtotal)}</strong></div></div>`}</article>`;
+}
+
+function produtoForm() {
+  const p = state.productEditId ? state.produtos.find(prod => prod.id === state.productEditId) || {} : {};
+  return `<section class="card"><div class="card-title"><h3>${p.id ? 'Editar produto' : 'Novo produto'}</h3></div><input type="hidden" id="prod-id" value="${escapeHtml(p.id || '')}"><div class="form-row"><label>Código<input id="prod-codigo" value="${escapeHtml(p.codigo || p.ref || '')}"></label><label>Nome<input id="prod-nome" value="${escapeHtml(p.nome || '')}"></label></div><div class="form-row"><label>Marca<input id="prod-marca" value="${escapeHtml(p.marca || '')}"></label><label>Preço<input id="prod-preco" type="number" min="0" step="0.01" value="${Number(p.preco || 0)}"></label></div><div class="form-row"><label>Estoque<input id="prod-estoque" type="number" min="0" value="${Number(p.estoque || 0)}"></label><label>Status<select id="prod-status"><option value="ativo" ${p.ativo === false || p.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${p.ativo === false || p.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-product>Salvar produto</button>${p.id ? '<button type="button" class="btn" data-new-product>Novo produto</button>' : ''}</div></section>`;
+}
+
+function clienteForm() {
+  const c = state.clientEditId ? state.clientes.find(cli => cli.id === state.clientEditId) || {} : {};
+  const vendedorOptions = state.vendedores.map(v => `<option value="${v.id}" ${c.vendedorId === v.id ? 'selected' : ''}>${escapeHtml(v.nome || v.email || v.id)}</option>`).join('');
+  return `<section class="card"><div class="card-title"><h3>${c.id ? 'Editar cliente' : 'Novo cliente'}</h3></div><input type="hidden" id="cliente-id" value="${escapeHtml(c.id || '')}"><label>Razão social / Nome<input id="cliente-nome" value="${escapeHtml(c.nome || c.razaoSocial || '')}"></label><div class="form-row"><label>CNPJ<input id="cliente-cnpj" value="${escapeHtml(c.cnpj || c.doc || '')}"></label><label>Telefone<input id="cliente-telefone" value="${escapeHtml(c.telefone || c.tel || '')}"></label></div><div class="form-row"><label>Cidade<input id="cliente-cidade" value="${escapeHtml(c.cidade || '')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado || '')}"></label></div><div class="form-row"><label>Vendedor responsável<select id="cliente-vendedor"><option value="">Sem vendedor</option>${vendedorOptions}</select></label><label>Status<select id="cliente-status"><option value="ativo" ${c.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${c.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-client>Salvar cliente</button>${c.id ? '<button type="button" class="btn" data-new-client>Novo cliente</button>' : ''}</div></section>`;
 }
 
 function orderList(list) {
@@ -229,8 +247,8 @@ function orderList(list) {
 
 function orderCard(p) {
   const actions = [`<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`];
-  if (isAdmin() && p.status === 'enviado') actions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button>`);
-  if (isAdmin() && p.status === 'aprovado') actions.push(`<button type="button" class="btn blue small" data-bill="${p.id}">Marcar como faturado</button>`);
+  if (isAdmin() && p.status === 'enviado') actions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button><button type="button" class="btn red small" data-cancel-order="${p.id}">Cancelar</button>`);
+  if (isAdmin() && p.status === 'aprovado') actions.push(`<button type="button" class="btn blue small" data-bill="${p.id}">Marcar como faturado</button><button type="button" class="btn red small" data-cancel-order="${p.id}">Cancelar</button>`);
   const itens = (p.itens || []).map(item => `<div class="row-sub">${escapeHtml(item.codigo || '')} · ${escapeHtml(item.nome || '')} · ${escapeHtml(item.marca || '')} · ${item.qty}x · desc. ${item.descontoPct || 0}% · ${money(item.subtotal)}</div>`).join('');
   return `<article class="row-card"><div class="row-top"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span></div>${itens}<div class="row-top" style="margin-top:10px"><strong>${money(p.total || 0)}</strong><div class="actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
 }
@@ -250,7 +268,14 @@ function bindPageEvents() {
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-bill]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.bill, 'faturado'));
+  $$('[data-cancel-order]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.cancelOrder, 'cancelado'));
   $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
+  $$('[data-edit-product]').forEach(btn => btn.onclick = () => { state.productEditId = btn.dataset.editProduct; renderPage(); });
+  $('[data-new-product]')?.addEventListener('click', () => { state.productEditId = ''; renderPage(); });
+  $('[data-save-product]')?.addEventListener('click', saveProduct);
+  $$('[data-edit-client]').forEach(btn => btn.onclick = () => { state.clientEditId = btn.dataset.editClient; renderPage(); });
+  $('[data-new-client]')?.addEventListener('click', () => { state.clientEditId = ''; renderPage(); });
+  $('[data-save-client]')?.addEventListener('click', saveClient);
 }
 
 function bindStartOrderButtons() {
@@ -337,16 +362,70 @@ async function sendOrder(button) {
   }
 }
 
+async function saveProduct() {
+  if (!isAdmin()) return toast('Somente admin salva produtos.');
+  const id = $('#prod-id')?.value || ($('#prod-codigo')?.value || $('#prod-nome')?.value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const codigo = ($('#prod-codigo')?.value || '').trim();
+  const nome = ($('#prod-nome')?.value || '').trim();
+  if (!id || !codigo || !nome) return toast('Informe código e nome do produto.');
+  const status = $('#prod-status')?.value === 'inativo' ? 'inativo' : 'ativo';
+  await fb.setDoc(ref('produtos', id), {
+    codigo,
+    ref: codigo,
+    nome,
+    marca: ($('#prod-marca')?.value || '').trim(),
+    preco: Number($('#prod-preco')?.value || 0),
+    estoque: Number($('#prod-estoque')?.value || 0),
+    ativo: status === 'ativo',
+    status,
+    atualizadoEm: fb.serverTimestamp()
+  }, { merge: true });
+  state.productEditId = id;
+  toast('Produto salvo.');
+}
+
+async function saveClient() {
+  if (!isAdmin()) return toast('Somente admin salva clientes.');
+  const id = $('#cliente-id')?.value || '';
+  const nome = ($('#cliente-nome')?.value || '').trim();
+  if (!nome) return toast('Informe razão social / nome do cliente.');
+  const vendedorId = $('#cliente-vendedor')?.value || '';
+  const vendedor = state.vendedores.find(v => v.id === vendedorId);
+  const data = {
+    nome,
+    razaoSocial: nome,
+    cnpj: ($('#cliente-cnpj')?.value || '').trim(),
+    doc: ($('#cliente-cnpj')?.value || '').trim(),
+    telefone: ($('#cliente-telefone')?.value || '').trim(),
+    tel: ($('#cliente-telefone')?.value || '').trim(),
+    cidade: ($('#cliente-cidade')?.value || '').trim(),
+    estado: ($('#cliente-estado')?.value || '').trim().toUpperCase(),
+    vendedorId,
+    vendedorNome: vendedor ? (vendedor.nome || vendedor.email || vendedor.id) : '',
+    status: $('#cliente-status')?.value === 'inativo' ? 'inativo' : 'ativo',
+    atualizadoEm: fb.serverTimestamp()
+  };
+  if (id) {
+    await fb.setDoc(ref('clientes', id), data, { merge: true });
+    state.clientEditId = id;
+  } else {
+    const docRef = await fb.addDoc(col('clientes'), { ...data, criadoEm: fb.serverTimestamp() });
+    state.clientEditId = docRef.id;
+  }
+  toast('Cliente salvo.');
+}
+
 async function changeOrderStatus(id, status) {
   if (!isAdmin()) return toast('Somente admin altera status.');
   const pedido = state.pedidos.find(p => p.id === id);
   if (!pedido) return;
-  const allowed = { enviado: ['aprovado', 'rejeitado'], aprovado: ['faturado'] };
+  const allowed = { enviado: ['aprovado', 'rejeitado', 'cancelado'], aprovado: ['faturado', 'cancelado'] };
   if (!allowed[pedido.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[pedido.status] || pedido.status} → ${STATUS[status] || status}.`);
   const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(pedido.historico || []), statusHistory(status)] };
   if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(pedido); update.estoqueBaixado = true; }
   if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
   if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
+  if (status === 'cancelado') update.canceladoEm = fb.serverTimestamp();
   await fb.updateDoc(ref('pedidos', id), update);
   toast(`Pedido ${STATUS[status].toLowerCase()}.`);
 }

@@ -13,7 +13,8 @@ service cloud.firestore {
     }
     function validAdminPedidoTransition() {
       return (resource.data.status == 'enviado' && request.resource.data.status in ['aprovado', 'rejeitado']) ||
-        (resource.data.status == 'aprovado' && request.resource.data.status == 'faturado');
+        (resource.data.status == 'aprovado' && request.resource.data.status == 'faturado') ||
+        (resource.data.status in ['enviado', 'aprovado'] && request.resource.data.status == 'cancelado');
     }
     function validOwnerPedidoTransition() {
       return vendedor() && resource.data.vendedorId == request.auth.uid && request.resource.data.vendedorId == request.auth.uid &&

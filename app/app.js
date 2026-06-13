@@ -17,6 +17,7 @@ const state = {
   pedidoObs: '',
   pedidoFiltro: 'todos',
   clienteFiltro: '',
+  catalogoBusca: '',
   productEditId: '',
   clientEditId: ''
 };
@@ -60,6 +61,7 @@ function resetSessionState() {
   state.pedidoObs = '';
   state.pedidoFiltro = 'todos';
   state.clienteFiltro = '';
+  state.catalogoBusca = '';
   state.productEditId = '';
   state.clientEditId = '';
   $('#content').innerHTML = '';
@@ -196,11 +198,13 @@ function renderCarteira() {
 
 function renderCatalogo() {
   const clientes = ownClientes();
-  const products = activeProducts();
+  const products = searchedProducts();
   const itemCount = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0).length;
   return head('Catálogo', 'Produtos ativos, desconto fixo em 0%.') +
     `<section class="card"><label>Cliente<select id="pedido-cliente"><option value="">Selecione cliente da carteira</option>${clientes.map(c => `<option value="${c.id}" ${state.pedidoClienteId === c.id ? 'selected' : ''}>${escapeHtml(c.nome || c.razaoSocial || 'Cliente')}</option>`).join('')}</select></label><label>Observação comercial<textarea id="pedido-obs" placeholder="Prazo, frete, condição comercial...">${escapeHtml(state.pedidoObs)}</textarea></label></section>` +
-    productList(products, false) + `<div class="cart-bar"><div><strong>${money(cartTotal())}</strong><div>${itemCount} item(ns) no pedido</div></div><button type="button" class="btn" data-send-order>Enviar para aprovação</button></div>`;
+    `<section class="card"><label>Buscar produto<input id="catalogo-search" placeholder="Nome, código, referência, marca ou descrição" value="${escapeHtml(state.catalogoBusca)}"></label></section>` +
+    `<div id="catalogo-product-list">${productList(products, false)}</div>` +
+    `<div class="cart-bar"><div><strong>${money(cartTotal())}</strong><div>${itemCount} item(ns) no pedido</div></div><button type="button" class="btn" data-send-order>Enviar para aprovação</button></div>`;
 }
 
 function renderMeusPedidos() {
@@ -219,6 +223,13 @@ function clientesList(list, admin) {
 function productList(list, admin) {
   if (!list.length) return '<div class="empty">Nenhum produto ativo encontrado.</div>';
   return `<div class="list">${list.map(p => productCard(p, admin)).join('')}</div>`;
+}
+
+function searchedProducts() {
+  const term = state.catalogoBusca.trim().toLowerCase();
+  const products = activeProducts();
+  if (!term) return products;
+  return products.filter(p => [p.nome, p.codigo, p.ref, p.marca, p.descricao].some(value => String(value || '').toLowerCase().includes(term)));
 }
 
 function productCard(p, admin) {
@@ -257,12 +268,16 @@ function bindPageEvents() {
   $$('[data-page-jump]').forEach(btn => btn.onclick = () => setPage(btn.dataset.pageJump));
   $$('[data-filter-ped]').forEach(btn => btn.onclick = () => { state.pedidoFiltro = btn.dataset.filterPed; renderPage(); });
   bindStartOrderButtons();
-  $$('[data-qty]').forEach(btn => btn.onclick = () => updateQty(btn.dataset.qty, Number(btn.dataset.delta)));
+  bindQtyButtons();
   $('#pedido-cliente')?.addEventListener('change', e => { state.pedidoClienteId = e.target.value; });
   $('#pedido-obs')?.addEventListener('input', e => { state.pedidoObs = e.target.value; });
   $('#cliente-search')?.addEventListener('input', e => {
     state.clienteFiltro = e.target.value;
     renderClienteList();
+  });
+  $('#catalogo-search')?.addEventListener('input', e => {
+    state.catalogoBusca = e.target.value;
+    renderCatalogoProductList();
   });
   $('[data-send-order]')?.addEventListener('click', e => sendOrder(e.currentTarget));
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
@@ -286,6 +301,10 @@ function bindStartOrderButtons() {
   });
 }
 
+function bindQtyButtons() {
+  $$('[data-qty]').forEach(btn => btn.onclick = () => updateQty(btn.dataset.qty, Number(btn.dataset.delta)));
+}
+
 function renderClienteList() {
   const target = $('#cliente-list');
   if (!target) return;
@@ -293,6 +312,13 @@ function renderClienteList() {
   const list = ownClientes().filter(c => !term || (c.nome || c.razaoSocial || '').toLowerCase().includes(term) || (c.doc || c.cnpj || '').toLowerCase().includes(term));
   target.innerHTML = clientesList(list, false);
   bindStartOrderButtons();
+}
+
+function renderCatalogoProductList() {
+  const target = $('#catalogo-product-list');
+  if (!target) return;
+  target.innerHTML = productList(searchedProducts(), false);
+  bindQtyButtons();
 }
 
 function updateQty(id, delta) {

@@ -276,16 +276,18 @@ function updateQty(id, delta) {
   const qty = Math.max(0, Math.min(Number(p.estoque || 9999), Number(state.cart[id]?.qty || 0) + delta));
   if (!qty) { delete state.cart[id]; renderPage(); return; }
   const price = Number(p.preco || 0);
+  const subtotal = price * qty;
   state.cart[id] = {
     prodId: id,
-    codigo: productCode(p),
+    codigo: p.codigo || p.ref || p.id || '',
     nome: p.nome || '',
     marca: p.marca || '',
+    preco: price,
     precoOriginal: price,
     precoFinal: price,
     descontoPct: 0,
-    qty,
-    subtotal: price * qty
+    qty: Number(qty || 0),
+    subtotal: Number(subtotal || 0)
   };
   renderPage();
 }
@@ -304,7 +306,15 @@ async function sendOrder(button) {
       vendedorId: state.user.uid,
       vendedorNome: vendedorNome(),
       clienteId: cliente.id,
-      cliente: { id: cliente.id, nome: cliente.nome || cliente.razaoSocial, doc: cliente.doc || cliente.cnpj, telefone: cliente.tel || cliente.telefone, cidade: cliente.cidade, estado: cliente.estado },
+      cliente: {
+        id: cliente.id || '',
+        nome: cliente.nome || '',
+        fantasia: cliente.fantasia || '',
+        cnpj: cliente.cnpj || '',
+        telefone: cliente.telefone || '',
+        cidade: cliente.cidade || '',
+        estado: cliente.estado || ''
+      },
       itens,
       observacoes: state.pedidoObs.trim(),
       total: cartTotal(),

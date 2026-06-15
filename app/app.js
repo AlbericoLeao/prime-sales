@@ -42,6 +42,15 @@ function activeProducts() { return state.produtos.filter(p => p.ativo !== false 
 function byCreatedDesc(a, b) { return tsMs(b.criadoEm || b.enviadoEm || b.atualizadoEm) - tsMs(a.criadoEm || a.enviadoEm || a.atualizadoEm); }
 function byName(a, b) { return (a.nome || a.razaoSocial || '').localeCompare(b.nome || b.razaoSocial || ''); }
 function productCode(p) { return p.codigo || p.ref || p.id; }
+function normalizeProductCode(code) { return String(code || '').trim().replace(/\s+/g, '').toLowerCase(); }
+function findProductByCode(code) {
+  const normalized = normalizeProductCode(code);
+  if (!normalized) return null;
+  return state.produtos.find(p => normalizeProductCode(p.codigo || p.ref) === normalized) || null;
+}
+function productIdFromCode(code, name = '') {
+  return (code || name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
 function cartTotal() { return Object.values(state.cart).reduce((sum, item) => sum + Number(item.subtotal || 0), 0); }
 function statusHistory(status) { return { status, at: new Date().toISOString(), by: state.user?.uid || '', byName: vendedorNome() }; }
 
@@ -390,12 +399,15 @@ async function sendOrder(button) {
 
 async function saveProduct() {
   if (!isAdmin()) return toast('Somente admin salva produtos.');
-  const id = $('#prod-id')?.value || ($('#prod-codigo')?.value || $('#prod-nome')?.value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const codigo = ($('#prod-codigo')?.value || '').trim();
   const nome = ($('#prod-nome')?.value || '').trim();
+  const currentId = $('#prod-id')?.value || '';
+  const id = currentId || productIdFromCode(codigo, nome);
   if (!id || !codigo || !nome) return toast('Informe código e nome do produto.');
+  const existing = findProductByCode(codigo);
+  if (existing && existing.id !== currentId) return toast('Produto já cadastrado. Edite o item existente para alterar preço ou estoque.');
   const status = $('#prod-status')?.value === 'inativo' ? 'inativo' : 'ativo';
-  await fb.setDoc(ref('produtos', id), {
+  await saveProductDoc(id, {
     codigo,
     ref: codigo,
     nome,
@@ -403,11 +415,27 @@ async function saveProduct() {
     preco: Number($('#prod-preco')?.value || 0),
     estoque: Number($('#prod-estoque')?.value || 0),
     ativo: status === 'ativo',
-    status,
-    atualizadoEm: fb.serverTimestamp()
-  }, { merge: true });
+    status
+  });
   state.productEditId = id;
   toast('Produto salvo.');
+}
+
+async function upsertProductByCode(data) {
+  const codigo = (data.codigo || data.ref || '').trim();
+  const nome = (data.nome || '').trim();
+  const existing = findProductByCode(codigo);
+  const id = existing?.id || productIdFromCode(codigo, nome);
+  if (!id || !codigo || !nome) return null;
+  await saveProductDoc(id, { ...data, codigo, ref: codigo, nome });
+  return id;
+}
+
+async function saveProductDoc(id, data) {
+  await fb.setDoc(ref('produtos', id), {
+    ...data,
+    atualizadoEm: fb.serverTimestamp()
+  }, { merge: true });
 }
 
 async function saveClient() {

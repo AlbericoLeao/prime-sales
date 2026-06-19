@@ -18,6 +18,8 @@ const state = {
   pedidoFiltro: 'todos',
   clienteFiltro: '',
   catalogoBusca: '',
+  adminProdutoBusca: '',
+  adminClienteBusca: '',
   productEditId: '',
   clientEditId: ''
 };
@@ -51,6 +53,9 @@ function findProductByCode(code) {
 function productIdFromCode(code, name = '') {
   return (code || name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
+function normalizeSearch(value) {
+  return String(value || '').toLowerCase().replace(/\s+/g, '');
+}
 function safeNumber(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? number : 0;
@@ -75,6 +80,8 @@ function resetSessionState() {
   state.pedidoFiltro = 'todos';
   state.clienteFiltro = '';
   state.catalogoBusca = '';
+  state.adminProdutoBusca = '';
+  state.adminClienteBusca = '';
   state.productEditId = '';
   state.clientEditId = '';
   $('#content').innerHTML = '';
@@ -237,11 +244,15 @@ function renderAdminPedidos() {
 }
 
 function renderAdminClientes() {
-  return head('Clientes', 'Carteiras atribuídas aos vendedores.') + vendedorMetasPanel() + clienteForm() + clientesList(state.clientes, true);
+  return head('Clientes', 'Carteiras atribuídas aos vendedores.') + vendedorMetasPanel() + clienteForm() +
+    `<section class="card"><label>Buscar cliente<input id="admin-client-search" placeholder="Nome, CNPJ, telefone, cidade, estado ou vendedor" value="${escapeHtml(state.adminClienteBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-client-search>Limpar busca</button></div></section>` +
+    `<div id="admin-client-list">${clientesList(filteredAdminClients(), true)}</div>`;
 }
 
 function renderAdminProdutos() {
-  return head('Produtos', 'Produtos ativos disponíveis no catálogo.') + produtoForm() + productList(state.produtos, true);
+  return head('Produtos', 'Produtos ativos disponíveis no catálogo.') + produtoForm() +
+    `<section class="card"><label>Buscar produto<input id="admin-product-search" placeholder="Código, nome, descrição, marca ou status" value="${escapeHtml(state.adminProdutoBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-product-search>Limpar busca</button></div></section>` +
+    `<div id="admin-product-list">${productList(filteredAdminProducts(), true)}</div>`;
 }
 
 function renderCarteira() {
@@ -293,6 +304,39 @@ function clientesList(list, admin) {
 function productList(list, admin) {
   if (!list.length) return '<div class="empty">Nenhum produto ativo encontrado.</div>';
   return `<div class="list">${list.map(p => productCard(p, admin)).join('')}</div>`;
+}
+
+function filteredAdminProducts() {
+  const term = normalizeSearch(state.adminProdutoBusca);
+  if (!term) return state.produtos;
+  return state.produtos.filter(p => {
+    const status = p.ativo === false || p.status === 'inativo' ? 'inativo' : 'ativo';
+    return [p.codigo, p.ref, p.nome, p.descricao, p.marca, status].some(value => normalizeSearch(value).includes(term));
+  });
+}
+
+function filteredAdminClients() {
+  const term = normalizeSearch(state.adminClienteBusca);
+  if (!term) return state.clientes;
+  return state.clientes.filter(c => {
+    const vendedor = state.vendedores.find(v => v.id === c.vendedorId) || {};
+    return [
+      c.nome,
+      c.razaoSocial,
+      c.fantasia,
+      c.nomeFantasia,
+      c.cnpj,
+      c.doc,
+      c.telefone,
+      c.tel,
+      c.cidade,
+      c.estado,
+      c.vendedorNome,
+      vendedor.nome,
+      vendedor.email,
+      c.vendedorId
+    ].some(value => normalizeSearch(value).includes(term));
+  });
 }
 
 function searchedProducts() {
@@ -349,6 +393,28 @@ function bindPageEvents() {
     state.catalogoBusca = e.target.value;
     renderCatalogoProductList();
   });
+  $('#admin-product-search')?.addEventListener('input', e => {
+    state.adminProdutoBusca = e.target.value;
+    renderAdminProductList();
+  });
+  $('[data-clear-admin-product-search]')?.addEventListener('click', () => {
+    state.adminProdutoBusca = '';
+    const input = $('#admin-product-search');
+    if (input) input.value = '';
+    renderAdminProductList();
+    input?.focus();
+  });
+  $('#admin-client-search')?.addEventListener('input', e => {
+    state.adminClienteBusca = e.target.value;
+    renderAdminClientList();
+  });
+  $('[data-clear-admin-client-search]')?.addEventListener('click', () => {
+    state.adminClienteBusca = '';
+    const input = $('#admin-client-search');
+    if (input) input.value = '';
+    renderAdminClientList();
+    input?.focus();
+  });
   $('[data-send-order]')?.addEventListener('click', e => sendOrder(e.currentTarget));
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
@@ -383,6 +449,28 @@ function renderClienteList() {
   const list = ownClientes().filter(c => !term || (c.nome || c.razaoSocial || '').toLowerCase().includes(term) || (c.doc || c.cnpj || '').toLowerCase().includes(term));
   target.innerHTML = clientesList(list, false);
   bindStartOrderButtons();
+}
+
+function bindAdminProductButtons() {
+  $$('[data-edit-product]').forEach(btn => btn.onclick = () => { state.productEditId = btn.dataset.editProduct; renderPage(); });
+}
+
+function bindAdminClientButtons() {
+  $$('[data-edit-client]').forEach(btn => btn.onclick = () => { state.clientEditId = btn.dataset.editClient; renderPage(); });
+}
+
+function renderAdminProductList() {
+  const target = $('#admin-product-list');
+  if (!target) return;
+  target.innerHTML = productList(filteredAdminProducts(), true);
+  bindAdminProductButtons();
+}
+
+function renderAdminClientList() {
+  const target = $('#admin-client-list');
+  if (!target) return;
+  target.innerHTML = clientesList(filteredAdminClients(), true);
+  bindAdminClientButtons();
 }
 
 function renderCatalogoProductList() {

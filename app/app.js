@@ -51,6 +51,10 @@ function findProductByCode(code) {
 function productIdFromCode(code, name = '') {
   return (code || name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
+function safeNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}
 function cartTotal() { return Object.values(state.cart).reduce((sum, item) => sum + Number(item.subtotal || 0), 0); }
 function statusHistory(status) { return { status, at: new Date().toISOString(), by: state.user?.uid || '', byName: vendedorNome() }; }
 
@@ -143,6 +147,11 @@ function listen(source, callback) {
   state.unsubs.push(unsub);
 }
 
+function listenDoc(source, callback) {
+  const unsub = fb.onSnapshot(source, snap => { if (snap.exists()) callback({ id: snap.id, ...snap.data() }); }, err => toast(`Erro ao carregar dados: ${err.message}`));
+  state.unsubs.push(unsub);
+}
+
 function startListeners() {
   state.unsubs.forEach(unsub => unsub());
   state.unsubs = [];
@@ -153,6 +162,7 @@ function startListeners() {
   listen(clientesQuery, docs => { state.clientes = docs.sort(byName); rerender(); });
   listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
   if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
+  if (isVend()) listenDoc(ref('users', uid), doc => { state.profile = doc; state.role = doc.role || state.role; $('#user-name').textContent = state.profile.nome || state.user.email; rerender(); });
 }
 
 function rerender() {
@@ -166,6 +176,42 @@ function head(title, subtitle = '') {
 }
 function stat(label, value, cls = '') {
   return `<div class="stat ${cls}"><small>${label}</small><strong>${value}</strong></div>`;
+}
+
+function currentMonthBounds(now = new Date()) {
+  return {
+    start: new Date(now.getFullYear(), now.getMonth(), 1).getTime(),
+    end: new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime()
+  };
+}
+
+function monthLabel(now = new Date()) {
+  return now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+}
+
+function percentText(value) {
+  const safe = Number.isFinite(value) ? value : 0;
+  return `${safe.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
+
+function sellerMonthlyGoalData(now = new Date()) {
+  const { start, end } = currentMonthBounds(now);
+  const metaMensal = safeNumber(state.profile?.metaMensal);
+  const pedidosFaturados = ownPedidos().filter(p => {
+    const faturadoEm = tsMs(p.faturadoEm);
+    return p.status === 'faturado' && faturadoEm >= start && faturadoEm < end;
+  });
+  const totalFaturadoMes = pedidosFaturados.reduce((sum, p) => sum + safeNumber(p.valorTotal ?? p.total), 0);
+  const hasGoal = metaMensal > 0;
+  const percentual = hasGoal ? (totalFaturadoMes / metaMensal) * 100 : 0;
+  return {
+    metaMensal,
+    totalFaturadoMes,
+    pedidosFaturados: pedidosFaturados.length,
+    hasGoal,
+    percentual: Number.isFinite(percentual) ? percentual : 0,
+    restante: hasGoal ? Math.max(0, metaMensal - totalFaturadoMes) : 0
+  };
 }
 
 function renderPage() {
@@ -191,7 +237,7 @@ function renderAdminPedidos() {
 }
 
 function renderAdminClientes() {
-  return head('Clientes', 'Carteiras atribuídas aos vendedores.') + clienteForm() + clientesList(state.clientes, true);
+  return head('Clientes', 'Carteiras atribuídas aos vendedores.') + vendedorMetasPanel() + clienteForm() + clientesList(state.clientes, true);
 }
 
 function renderAdminProdutos() {
@@ -201,8 +247,23 @@ function renderAdminProdutos() {
 function renderCarteira() {
   const term = state.clienteFiltro.toLowerCase();
   const list = ownClientes().filter(c => !term || (c.nome || c.razaoSocial || '').toLowerCase().includes(term) || (c.doc || c.cnpj || '').toLowerCase().includes(term));
-  return head('Minha Carteira', 'Somente clientes com vendedorId igual ao seu UID.') +
+  return head('Minha Carteira', 'Somente clientes com vendedorId igual ao seu UID.') + sellerMonthlyGoalPanel() +
     `<section class="card"><label>Pesquisar cliente<input id="cliente-search" placeholder="Nome ou CNPJ" value="${escapeHtml(state.clienteFiltro)}"></label></section><div id="cliente-list">${clientesList(list, false)}</div>`;
+}
+
+function sellerMonthlyGoalPanel() {
+  const data = sellerMonthlyGoalData();
+  const progress = Math.min(100, Math.max(0, data.percentual));
+  const goalText = data.hasGoal ? money(data.metaMensal) : 'Meta não definida';
+  const percent = data.hasGoal ? percentText(data.percentual) : 'Meta não definida';
+  const remaining = data.hasGoal ? money(data.restante) : 'Meta não definida';
+  const superada = data.hasGoal && data.totalFaturadoMes > data.metaMensal ? '<div class="row-sub">Meta superada</div>' : '';
+  return `<section class="card"><div class="card-title"><h3>Meta mensal</h3><span class="badge destaque">${escapeHtml(monthLabel())}</span></div><div class="grid three">${stat('Meta mensal', goalText)}${stat('Faturado no mês', money(data.totalFaturadoMes), 'gold')}${stat('Pedidos faturados', data.pedidosFaturados)}${stat('Atingimento', percent)}${stat('Quanto falta', remaining)}</div><div style="height:10px;background:var(--card2);border-radius:999px;overflow:hidden;margin-top:12px"><div style="height:100%;width:${progress}%;background:var(--gold)"></div></div><div class="row-sub">Atingimento: ${escapeHtml(percent)}</div>${superada}</section>`;
+}
+
+function vendedorMetasPanel() {
+  if (!state.vendedores.length) return '<section class="card"><div class="empty">Nenhum vendedor encontrado para definir meta.</div></section>';
+  return `<section class="card"><div class="card-title"><h3>Metas mensais dos vendedores</h3></div><div class="list">${state.vendedores.map(v => `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(v.nome || v.email || v.id)}</div><div class="row-sub">${escapeHtml(v.email || v.id)}</div></div><span class="badge destaque">${money(v.metaMensal || 0)}</span></div><div class="form-row"><label>Meta mensal<input type="number" min="0" step="0.01" data-meta-input="${v.id}" value="${safeNumber(v.metaMensal)}"></label><div class="actions" style="align-items:end"><button type="button" class="btn small primary" data-save-seller-goal="${v.id}">Salvar meta</button></div></div></article>`).join('')}</div></section>`;
 }
 
 function renderCatalogo() {
@@ -300,6 +361,7 @@ function bindPageEvents() {
   $$('[data-edit-client]').forEach(btn => btn.onclick = () => { state.clientEditId = btn.dataset.editClient; renderPage(); });
   $('[data-new-client]')?.addEventListener('click', () => { state.clientEditId = ''; renderPage(); });
   $('[data-save-client]')?.addEventListener('click', saveClient);
+  $$('[data-save-seller-goal]').forEach(btn => btn.onclick = () => saveSellerGoal(btn.dataset.saveSellerGoal));
 }
 
 function bindStartOrderButtons() {
@@ -467,6 +529,18 @@ async function saveClient() {
     state.clientEditId = docRef.id;
   }
   toast('Cliente salvo.');
+}
+
+async function saveSellerGoal(id) {
+  if (!isAdmin()) return toast('Somente admin altera metas.');
+  const input = $$('[data-meta-input]').find(el => el.dataset.metaInput === id);
+  const metaMensal = safeNumber(input?.value);
+  if (!input || !Number.isFinite(Number(input.value)) || metaMensal < 0) return toast('Informe uma meta maior ou igual a zero.');
+  await fb.setDoc(ref('users', id), {
+    metaMensal,
+    atualizadoEm: fb.serverTimestamp()
+  }, { merge: true });
+  toast('Meta mensal salva.');
 }
 
 async function changeOrderStatus(id, status) {

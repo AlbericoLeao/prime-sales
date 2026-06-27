@@ -1,6 +1,5 @@
-// 🔐 CONFIGURAÇÃO FIREBASE SEGURA
-// Este arquivo contém as credenciais do Firebase
-// Mantenha seguro e não compartilhe publicamente
+// Configuracao publica do Firebase Web SDK.
+// A seguranca dos dados depende das regras do Firebase/Auth/Firestore.
 
 window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyDnT-_A6WZpX1AaTr5AFU9alOn6e5CpRuM",

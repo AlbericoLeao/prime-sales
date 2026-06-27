@@ -4,7 +4,7 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
     function role() { return signedIn() && me().exists() ? me().data.role : null; }
-    function active() { return signedIn() && me().exists() && me().data.bloqueado != true; }
+    function active() { return signedIn() && me().exists() && me().data.ativo != false && me().data.bloqueado != true; }
     function admin() { return active() && role() == 'admin'; }
     function vendedor() { return active() && role() == 'vendedor'; }
     function owner(uid) { return active() && request.auth.uid == uid; }
@@ -23,7 +23,7 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow read: if admin() || owner(uid);
+      allow read: if admin() || (signedIn() && request.auth.uid == uid);
       allow create, update, delete: if admin();
     }
 

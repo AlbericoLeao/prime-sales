@@ -21,7 +21,8 @@ const state = {
   adminProdutoBusca: '',
   adminClienteBusca: '',
   productEditId: '',
-  clientEditId: ''
+  clientEditId: '',
+  accessBlocked: false
 };
 
 const STATUS = {
@@ -62,6 +63,7 @@ function safeNumber(value) {
 }
 function cartTotal() { return Object.values(state.cart).reduce((sum, item) => sum + Number(item.subtotal || 0), 0); }
 function statusHistory(status) { return { status, at: new Date().toISOString(), by: state.user?.uid || '', byName: vendedorNome() }; }
+function sellerAccessBlocked(profile = state.profile) { return (profile?.role || 'vendedor') === 'vendedor' && profile?.ativo === false; }
 
 function resetSessionState() {
   state.unsubs.forEach(unsub => unsub());
@@ -84,6 +86,7 @@ function resetSessionState() {
   state.adminClienteBusca = '';
   state.productEditId = '';
   state.clientEditId = '';
+  state.accessBlocked = false;
   $('#content').innerHTML = '';
   $('#main-nav').innerHTML = '';
   $('#bottom-nav').innerHTML = '';
@@ -110,6 +113,42 @@ function hideProtectedUi() {
   $('#sidebar-backdrop')?.classList.add('hidden');
 }
 
+function renderBlockedAccess() {
+  return head('Acesso bloqueado', 'Seu acesso foi bloqueado. Fale com o administrador.') +
+    '<section class="card"><div class="empty">Seu acesso foi bloqueado. Fale com o administrador.</div><div class="actions" style="margin-top:12px"><button type="button" class="btn primary" data-blocked-logout>Sair</button></div></section>';
+}
+
+function showBlockedAccess() {
+  state.accessBlocked = true;
+  state.unsubs.forEach(unsub => unsub());
+  state.unsubs = [];
+  state.pedidos = [];
+  state.produtos = [];
+  state.clientes = [];
+  state.vendedores = [];
+  state.cart = {};
+  state.pedidoClienteId = '';
+  state.pedidoObs = '';
+  $('#auth').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  $('#main-nav').innerHTML = '';
+  $('#bottom-nav').innerHTML = '';
+  $('#page-subtitle').textContent = 'Acesso bloqueado';
+  $('#role-pill').textContent = 'VENDEDOR';
+  $('#role-pill').className = 'role-pill vendedor';
+  $('#user-name').textContent = state.profile?.nome || state.user?.email || 'Vendedor';
+  $('#content').innerHTML = renderBlockedAccess();
+  $('[data-blocked-logout]')?.addEventListener('click', logout);
+  syncSidebarForViewport();
+  setLoading(true);
+}
+
+function ensureSellerAccess() {
+  if (!sellerAccessBlocked()) return true;
+  showBlockedAccess();
+  return false;
+}
+
 function setLoading(done = true) {
   $('#splash')?.classList.toggle('hide', done);
   setTimeout(() => $('#splash')?.classList.add('hidden'), 420);
@@ -133,6 +172,7 @@ function closeMenu() {
 }
 
 function setPage(page) {
+  if (state.accessBlocked) { showBlockedAccess(); return; }
   if (page === 'carteira') state.clienteFiltro = '';
   state.page = page;
   $('#page-subtitle').textContent = navItems().find(item => item[0] === page)?.[2] || 'Prime Sales';
@@ -169,11 +209,18 @@ function startListeners() {
   listen(clientesQuery, docs => { state.clientes = docs.sort(byName); rerender(); });
   listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
   if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
-  if (isVend()) listenDoc(ref('users', uid), doc => { state.profile = doc; state.role = doc.role || state.role; $('#user-name').textContent = state.profile.nome || state.user.email; rerender(); });
+  if (isVend()) listenDoc(ref('users', uid), doc => {
+    state.profile = doc;
+    state.role = doc.role || state.role;
+    if (sellerAccessBlocked(doc)) { showBlockedAccess(); return; }
+    $('#user-name').textContent = state.profile.nome || state.user.email;
+    rerender();
+  });
 }
 
 function rerender() {
   if (!state.user) return;
+  if (state.accessBlocked) { showBlockedAccess(); return; }
   renderNav();
   renderPage();
 }
@@ -222,6 +269,7 @@ function sellerMonthlyGoalData(now = new Date()) {
 }
 
 function renderPage() {
+  if (state.accessBlocked) { showBlockedAccess(); return; }
   const pages = {
     pedidos: renderAdminPedidos,
     clientes: renderAdminClientes,
@@ -274,7 +322,14 @@ function sellerMonthlyGoalPanel() {
 
 function vendedorMetasPanel() {
   if (!state.vendedores.length) return '<section class="card"><div class="empty">Nenhum vendedor encontrado para definir meta.</div></section>';
-  return `<section class="card"><div class="card-title"><h3>Metas mensais dos vendedores</h3></div><div class="list">${state.vendedores.map(v => `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(v.nome || v.email || v.id)}</div><div class="row-sub">${escapeHtml(v.email || v.id)}</div></div><span class="badge destaque">${money(v.metaMensal || 0)}</span></div><div class="form-row"><label>Meta mensal<input type="number" min="0" step="0.01" data-meta-input="${v.id}" value="${safeNumber(v.metaMensal)}"></label><div class="actions" style="align-items:end"><button type="button" class="btn small primary" data-save-seller-goal="${v.id}">Salvar meta</button></div></div></article>`).join('')}</div></section>`;
+  return `<section class="card"><div class="card-title"><h3>Metas mensais dos vendedores</h3></div><div class="list">${state.vendedores.map(v => {
+    const blocked = v.ativo === false;
+    const status = blocked ? '<span class="badge rejeitado">Bloqueado</span>' : '<span class="badge faturado">Ativo</span>';
+    const accessAction = blocked
+      ? `<button type="button" class="btn small green" data-reactivate-seller="${v.id}">Reativar acesso</button>`
+      : `<button type="button" class="btn small red" data-block-seller="${v.id}">Bloquear acesso</button>`;
+    return `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(v.nome || v.email || v.id)}</div><div class="row-sub">${escapeHtml(v.email || v.id)}</div>${v.motivoBloqueio ? `<div class="row-sub">Motivo: ${escapeHtml(v.motivoBloqueio)}</div>` : ''}</div><div class="actions">${status}<span class="badge destaque">${money(v.metaMensal || 0)}</span></div></div><div class="form-row"><label>Meta mensal<input type="number" min="0" step="0.01" data-meta-input="${v.id}" value="${safeNumber(v.metaMensal)}"></label><div class="actions" style="align-items:end"><button type="button" class="btn small primary" data-save-seller-goal="${v.id}">Salvar meta</button>${accessAction}</div></div></article>`;
+  }).join('')}</div></section>`;
 }
 
 function renderCatalogo() {
@@ -428,10 +483,13 @@ function bindPageEvents() {
   $('[data-new-client]')?.addEventListener('click', () => { state.clientEditId = ''; renderPage(); });
   $('[data-save-client]')?.addEventListener('click', saveClient);
   $$('[data-save-seller-goal]').forEach(btn => btn.onclick = () => saveSellerGoal(btn.dataset.saveSellerGoal));
+  $$('[data-block-seller]').forEach(btn => btn.onclick = () => blockSellerAccess(btn.dataset.blockSeller));
+  $$('[data-reactivate-seller]').forEach(btn => btn.onclick = () => reactivateSellerAccess(btn.dataset.reactivateSeller));
 }
 
 function bindStartOrderButtons() {
   $$('[data-start-order]').forEach(btn => btn.onclick = () => {
+    if (!ensureSellerAccess()) return;
     state.pedidoClienteId = btn.dataset.startOrder;
     state.cart = {};
     setPage('catalogo');
@@ -481,6 +539,7 @@ function renderCatalogoProductList() {
 }
 
 function updateQty(id, delta) {
+  if (!ensureSellerAccess()) return;
   const p = state.produtos.find(prod => prod.id === id);
   if (!p) return;
   const qty = Math.max(0, Math.min(Number(p.estoque || 9999), Number(state.cart[id]?.qty || 0) + delta));
@@ -504,6 +563,7 @@ function updateQty(id, delta) {
 
 async function sendOrder(button) {
   if (!isVend()) return toast('Somente vendedores enviam pedidos.');
+  if (!ensureSellerAccess()) return;
   const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && c.vendedorId === state.user.uid);
   const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
   if (!cliente) return toast('Selecione um cliente da sua carteira.');
@@ -631,6 +691,38 @@ async function saveSellerGoal(id) {
   toast('Meta mensal salva.');
 }
 
+async function blockSellerAccess(id) {
+  if (!isAdmin()) return toast('Somente admin bloqueia vendedores.');
+  const vendedor = state.vendedores.find(v => v.id === id);
+  if (!vendedor) return toast('Vendedor nao encontrado.');
+  if (!window.confirm(`Bloquear acesso de ${vendedor.nome || vendedor.email || id}?`)) return;
+  const motivo = (window.prompt('Motivo do bloqueio (opcional):', vendedor.motivoBloqueio || '') || '').trim();
+  const update = {
+    ativo: false,
+    bloqueadoEm: fb.serverTimestamp(),
+    bloqueadoPor: state.user.uid,
+    atualizadoEm: fb.serverTimestamp()
+  };
+  if (motivo) update.motivoBloqueio = motivo;
+  await fb.setDoc(ref('users', id), update, { merge: true });
+  toast('Acesso do vendedor bloqueado.');
+}
+
+async function reactivateSellerAccess(id) {
+  if (!isAdmin()) return toast('Somente admin reativa vendedores.');
+  const vendedor = state.vendedores.find(v => v.id === id);
+  if (!vendedor) return toast('Vendedor nao encontrado.');
+  if (!window.confirm(`Reativar acesso de ${vendedor.nome || vendedor.email || id}?`)) return;
+  await fb.setDoc(ref('users', id), {
+    ativo: true,
+    motivoBloqueio: '',
+    reativadoEm: fb.serverTimestamp(),
+    reativadoPor: state.user.uid,
+    atualizadoEm: fb.serverTimestamp()
+  }, { merge: true });
+  toast('Acesso do vendedor reativado.');
+}
+
 async function changeOrderStatus(id, status) {
   if (!isAdmin()) return toast('Somente admin altera status.');
   const pedido = state.pedidos.find(p => p.id === id);
@@ -695,10 +787,10 @@ async function onAuth(user) {
     const snap = await fb.getDoc(ref('users', user.uid));
     if (!snap.exists()) { await fb.signOut(auth); showLogin('Usuário sem cadastro no sistema.'); return; }
     const profile = { id: user.uid, ...snap.data() };
-    if (profile.bloqueado) { await fb.signOut(auth); showLogin('Acesso bloqueado. Fale com o administrador.'); return; }
     state.user = user;
     state.profile = profile;
     state.role = profile.role || 'vendedor';
+    if (sellerAccessBlocked(profile) || profile.bloqueado) { showBlockedAccess(); return; }
     state.page = isAdmin() ? 'pedidos' : 'carteira';
     $('#auth').classList.add('hidden');
     $('#app').classList.remove('hidden');

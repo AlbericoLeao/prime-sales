@@ -205,9 +205,10 @@ function startListeners() {
   const uid = state.user.uid;
   const pedidosQuery = isAdmin() ? fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')) : fb.query(col('pedidos'), fb.where('vendedorId', '==', uid));
   const clientesQuery = isAdmin() ? col('clientes') : fb.query(col('clientes'), fb.where('vendedorId', '==', uid));
+  const produtosQuery = isAdmin() ? col('produtos') : fb.query(col('produtos'), fb.where('ativo', '==', true));
   listen(pedidosQuery, docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
   listen(clientesQuery, docs => { state.clientes = docs.sort(byName); rerender(); });
-  listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
+  listen(produtosQuery, docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
   if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
   if (isVend()) listenDoc(ref('users', uid), doc => {
     state.profile = doc;

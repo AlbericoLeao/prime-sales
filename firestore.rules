@@ -1,53 +1,48 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function activeUser() {
+      return signedIn()
+        && userDoc().exists()
+        && userDoc().data.ativo != false
+        && userDoc().data.bloqueado != true;
+    }
+
     function role() {
-      return signedIn() && me().exists()
-        ? (me().data.role != null
-          ? me().data.role
-          : (me().data.perfil != null ? me().data.perfil : me().data.tipo))
-        : null;
+      return activeUser() ? userDoc().data.role : null;
     }
-    function active() { return signedIn() && me().exists() && me().data.ativo != false && me().data.bloqueado != true; }
-    function admin() { return active() && role() == 'admin'; }
-    function vendedor() { return active() && role() == 'vendedor'; }
-    function owner(uid) { return active() && request.auth.uid == uid; }
-    function activeProduct() { return resource.data.ativo == true || (!resource.data.keys().hasAny(['ativo']) && resource.data.status != 'inativo'); }
-    function clienteDoVendedor(clienteId) {
-      return clienteId is string &&
-        exists(/databases/$(database)/documents/clientes/$(clienteId)) &&
-        get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorId == request.auth.uid;
+
+    function admin() {
+      return role() == 'admin';
     }
-    function validPedidoStatus(status) {
-      return status in ['rascunho', 'enviado', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
+
+    function vendedor() {
+      return role() == 'vendedor';
     }
-    function validAdminPedidoTransition() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'historico', 'atualizadoEm', 'aprovadoEm', 'rejeitadoEm',
-          'canceladoEm', 'faturadoEm', 'estoqueBaixado'
-        ]) &&
-        ((resource.data.status == 'enviado' && request.resource.data.status in ['aprovado', 'rejeitado']) ||
-          (resource.data.status == 'aprovado' && request.resource.data.status == 'faturado') ||
-          (resource.data.status in ['enviado', 'aprovado'] && request.resource.data.status == 'cancelado'));
+
+    function activeProduct() {
+      return resource.data.ativo == true;
     }
-    function validOwnerPedidoCreate() {
-      return vendedor() &&
-        request.resource.data.keys().hasOnly([
-          'numero', 'vendedorId', 'vendedorNome', 'clienteId', 'cliente', 'itens',
-          'observacoes', 'total', 'status', 'historico', 'enviadoEm',
-          'criadoEm', 'atualizadoEm'
-        ]) &&
-        request.resource.data.vendedorId == request.auth.uid &&
-        clienteDoVendedor(request.resource.data.clienteId) &&
-        validPedidoStatus(request.resource.data.status) &&
-        request.resource.data.status in ['rascunho', 'enviado'];
+
+    function assignedClient(clienteId) {
+      return clienteId is string
+        && exists(/databases/$(database)/documents/clientes/$(clienteId))
+        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorId == request.auth.uid;
     }
-    function validOwnerPedidoTransition() {
-      return vendedor() && resource.data.vendedorId == request.auth.uid && request.resource.data.vendedorId == request.auth.uid &&
-        resource.data.status == 'rascunho' && request.resource.data.status in ['enviado', 'cancelado'] &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'historico', 'atualizadoEm', 'enviadoEm']);
+
+    function validSellerOrderCreate() {
+      return vendedor()
+        && request.resource.data.vendedorId == request.auth.uid
+        && request.resource.data.status == 'enviado'
+        && assignedClient(request.resource.data.clienteId);
     }
 
     match /users/{uid} {
@@ -65,34 +60,10 @@ service cloud.firestore {
       allow create, update, delete: if admin();
     }
 
-    match /solicitacoesClientes/{id} {
-      allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
-      allow create: if vendedor() && request.resource.data.vendedorId == request.auth.uid && request.resource.data.status == 'pendente';
-      allow update, delete: if admin();
-    }
-
     match /pedidos/{id} {
       allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
-      allow create: if validOwnerPedidoCreate();
-      allow update: if (admin() && validPedidoStatus(request.resource.data.status) && validAdminPedidoTransition()) || validOwnerPedidoTransition();
-      allow delete: if false;
-    }
-
-    match /metas/{id} {
-      allow read: if admin() || (vendedor() && id == request.auth.uid);
-      allow write: if admin();
-    }
-
-    match /metas-vend/{id} {
-      allow read: if admin() || (vendedor() && id == request.auth.uid);
-      allow write: if admin();
-    }
-
-    match /notificacoes/{id} {
-      allow read: if active() && resource.data.uid == request.auth.uid;
-      allow update: if active() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
-      allow create: if admin();
-      allow delete: if admin();
+      allow create: if admin() || validSellerOrderCreate();
+      allow update, delete: if admin();
     }
   }
 }

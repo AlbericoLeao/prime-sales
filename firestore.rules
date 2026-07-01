@@ -17,11 +17,20 @@ service cloud.firestore {
     }
 
     function role() {
-      return activeUser() ? userDoc().data.role : null;
+      return activeUser()
+        ? (userDoc().data.role != null
+          ? userDoc().data.role
+          : (userDoc().data.perfil != null ? userDoc().data.perfil : userDoc().data.tipo))
+        : null;
+    }
+
+    function adminEmail() {
+      return signedIn()
+        && request.auth.token.email == 'albericoprestes2014@gmail.com';
     }
 
     function admin() {
-      return role() == 'admin';
+      return adminEmail() || role() == 'admin';
     }
 
     function vendedor() {
@@ -45,6 +54,15 @@ service cloud.firestore {
         && assignedClient(request.resource.data.clienteId);
     }
 
+    function validAdminOrderDecision() {
+      return admin()
+        && resource.data.status == 'enviado'
+        && request.resource.data.status in ['aprovado', 'rejeitado']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'historico', 'atualizadoEm', 'aprovadoEm', 'rejeitadoEm', 'estoqueBaixado'
+        ]);
+    }
+
     match /users/{uid} {
       allow read: if admin() || (signedIn() && request.auth.uid == uid);
       allow create, update, delete: if admin();
@@ -63,7 +81,8 @@ service cloud.firestore {
     match /pedidos/{id} {
       allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
       allow create: if admin() || validSellerOrderCreate();
-      allow update, delete: if admin();
+      allow update: if validAdminOrderDecision();
+      allow delete: if false;
     }
   }
 }

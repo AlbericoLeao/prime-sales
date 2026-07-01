@@ -828,8 +828,6 @@ async function saveClient() {
   if (!nome) return toast('Informe razao social / nome do cliente.');
   const vendedorId = $('#cliente-vendedor')?.value || '';
   const vendedor = state.vendedores.find(v => v.id === vendedorId);
-  const current = id ? state.clientes.find(c => c.id === id) || {} : {};
-  const previousVendedorId = cleanUid(current.vendedorId);
   const data = {
     nome,
     razaoSocial: nome,
@@ -844,9 +842,6 @@ async function saveClient() {
     status: $('#cliente-status')?.value === 'inativo' ? 'inativo' : 'ativo',
     atualizadoEm: fb.serverTimestamp()
   };
-  if (id && previousVendedorId && previousVendedorId !== vendedorId && !current.vendedorIdAnterior) {
-    data.vendedorIdAnterior = previousVendedorId;
-  }
   if (id) {
     await fb.setDoc(ref('clientes', id), data, { merge: true });
     state.clientEditId = id;
@@ -868,27 +863,17 @@ async function unassignAllClientsFromSellers(button) {
     const toUnassign = clientes.filter(c => cleanUid(c.vendedorId));
     summary.alreadyUnassigned = clientes.length - toUnassign.length;
 
-    for (let i = 0; i < toUnassign.length; i += 450) {
-      const batch = fb.writeBatch(db);
-      const chunk = toUnassign.slice(i, i + 450);
-      chunk.forEach(cliente => {
-        const vendedorIdAnterior = cleanUid(cliente.vendedorId);
-        const patch = {
+    for (const cliente of toUnassign) {
+      try {
+        await fb.setDoc(ref('clientes', cliente.id), {
           vendedorId: '',
           vendedorNome: '',
-          desvinculadoEm: fb.serverTimestamp(),
-          desvinculadoPor: state.user.uid,
           atualizadoEm: fb.serverTimestamp()
-        };
-        if (!cliente.vendedorIdAnterior) patch.vendedorIdAnterior = vendedorIdAnterior;
-        batch.update(ref('clientes', cliente.id), patch);
-      });
-      try {
-        await batch.commit();
-        summary.unassigned += chunk.length;
+        }, { merge: true });
+        summary.unassigned += 1;
       } catch (err) {
         console.error(err);
-        summary.errors.push(`lote ${Math.floor(i / 450) + 1}: ${err.message}`);
+        summary.errors.push(`${cliente.id}: ${err.message}`);
       }
     }
 

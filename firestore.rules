@@ -3,7 +3,13 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function role() { return signedIn() && me().exists() ? me().data.role : null; }
+    function role() {
+      return signedIn() && me().exists()
+        ? (me().data.role != null
+          ? me().data.role
+          : (me().data.perfil != null ? me().data.perfil : me().data.tipo))
+        : null;
+    }
     function active() { return signedIn() && me().exists() && me().data.ativo != false && me().data.bloqueado != true; }
     function admin() { return active() && role() == 'admin'; }
     function vendedor() { return active() && role() == 'vendedor'; }

@@ -199,6 +199,22 @@ function listenDoc(source, callback) {
   state.unsubs.push(unsub);
 }
 
+async function normalizeLegacyActiveProducts(docs) {
+  if (!isAdmin()) return;
+  const legacyProducts = docs.filter(p => !Object.prototype.hasOwnProperty.call(p, 'ativo') && p.status !== 'inativo');
+  for (let i = 0; i < legacyProducts.length; i += 450) {
+    const batch = fb.writeBatch(db);
+    legacyProducts.slice(i, i + 450).forEach(p => {
+      batch.update(ref('produtos', p.id), {
+        ativo: true,
+        status: p.status || 'ativo',
+        atualizadoEm: fb.serverTimestamp()
+      });
+    });
+    await batch.commit();
+  }
+}
+
 function startListeners() {
   state.unsubs.forEach(unsub => unsub());
   state.unsubs = [];
@@ -208,7 +224,14 @@ function startListeners() {
   const produtosQuery = isAdmin() ? col('produtos') : fb.query(col('produtos'), fb.where('ativo', '==', true));
   listen(pedidosQuery, docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
   listen(clientesQuery, docs => { state.clientes = docs.sort(byName); rerender(); });
-  listen(produtosQuery, docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
+  listen(produtosQuery, docs => {
+    if (isAdmin()) normalizeLegacyActiveProducts(docs).catch(err => {
+      console.error(err);
+      toast(`Erro ao normalizar produtos legados: ${err.message}`);
+    });
+    state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+    rerender();
+  });
   if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
   if (isVend()) listenDoc(ref('users', uid), doc => {
     state.profile = doc;

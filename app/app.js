@@ -39,11 +39,14 @@ function isAdmin() { return state.role === 'admin'; }
 function isVend() { return state.role === 'vendedor'; }
 function navItems() { return isAdmin() ? ADMIN_NAV : VEND_NAV; }
 function vendedorNome() { return state.profile?.nome || state.user?.email || 'Vendedor'; }
+function userType(user) { return String(user?.role || user?.perfil || user?.tipo || '').trim().toLowerCase(); }
+function isSellerUser(user) { return userType(user) === 'vendedor'; }
+function sellerName(user) { return user?.nome || user?.email || user?.id || 'Vendedor'; }
 function ownClientes() { return state.clientes.filter(c => c.vendedorId === state.user?.uid); }
 function ownPedidos() { return state.pedidos.filter(p => p.vendedorId === state.user?.uid); }
 function activeProducts() { return state.produtos.filter(p => p.ativo !== false && !isInactiveStatus(p.status)); }
 function byCreatedDesc(a, b) { return tsMs(b.criadoEm || b.enviadoEm || b.atualizadoEm) - tsMs(a.criadoEm || a.enviadoEm || a.atualizadoEm); }
-function byName(a, b) { return (a.nome || a.razaoSocial || '').localeCompare(b.nome || b.razaoSocial || ''); }
+function byName(a, b) { return (a.nome || a.razaoSocial || a.email || a.id || '').localeCompare(b.nome || b.razaoSocial || b.email || b.id || ''); }
 function productCode(p) { return p.codigo || p.ref || p.id; }
 function normalizeProductCode(code) { return String(code || '').trim().replace(/\s+/g, '').toLowerCase(); }
 function findProductByCode(code) {
@@ -245,7 +248,7 @@ function startListeners() {
       state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
       rerender();
     });
-    listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
+    listen(col('users'), docs => { state.vendedores = docs.filter(isSellerUser).sort(byName); rerender(); });
     return;
   }
   if (!isVend()) return;
@@ -374,7 +377,7 @@ function vendedorMetasPanel() {
     const accessAction = blocked
       ? `<button type="button" class="btn small green" data-reactivate-seller="${v.id}">Reativar acesso</button>`
       : `<button type="button" class="btn small red" data-block-seller="${v.id}">Bloquear acesso</button>`;
-    return `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(v.nome || v.email || v.id)}</div><div class="row-sub">${escapeHtml(v.email || v.id)}</div>${v.motivoBloqueio ? `<div class="row-sub">Motivo: ${escapeHtml(v.motivoBloqueio)}</div>` : ''}</div><div class="actions">${status}<span class="badge destaque">${money(v.metaMensal || 0)}</span></div></div><div class="form-row"><label>Meta mensal<input type="number" min="0" step="0.01" data-meta-input="${v.id}" value="${safeNumber(v.metaMensal)}"></label><div class="actions" style="align-items:end"><button type="button" class="btn small primary" data-save-seller-goal="${v.id}">Salvar meta</button>${accessAction}</div></div></article>`;
+    return `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(sellerName(v))}</div><div class="row-sub">${escapeHtml(v.email || v.id)}</div>${v.motivoBloqueio ? `<div class="row-sub">Motivo: ${escapeHtml(v.motivoBloqueio)}</div>` : ''}</div><div class="actions">${status}<span class="badge destaque">${money(v.metaMensal || 0)}</span></div></div><div class="form-row"><label>Meta mensal<input type="number" min="0" step="0.01" data-meta-input="${v.id}" value="${safeNumber(v.metaMensal)}"></label><div class="actions" style="align-items:end"><button type="button" class="btn small primary" data-save-seller-goal="${v.id}">Salvar meta</button>${accessAction}</div></div></article>`;
   }).join('')}</div></section>`;
 }
 
@@ -462,7 +465,7 @@ function produtoForm() {
 
 function clienteForm() {
   const c = state.clientEditId ? state.clientes.find(cli => cli.id === state.clientEditId) || {} : {};
-  const vendedorOptions = state.vendedores.map(v => `<option value="${v.id}" ${c.vendedorId === v.id ? 'selected' : ''}>${escapeHtml(v.nome || v.email || v.id)}</option>`).join('');
+  const vendedorOptions = state.vendedores.map(v => `<option value="${v.id}" ${c.vendedorId === v.id ? 'selected' : ''}>${escapeHtml(sellerName(v))}</option>`).join('');
   return `<section class="card"><div class="card-title"><h3>${c.id ? 'Editar cliente' : 'Novo cliente'}</h3></div><input type="hidden" id="cliente-id" value="${escapeHtml(c.id || '')}"><label>Razão social / Nome<input id="cliente-nome" value="${escapeHtml(c.nome || c.razaoSocial || '')}"></label><div class="form-row"><label>CNPJ<input id="cliente-cnpj" value="${escapeHtml(c.cnpj || c.doc || '')}"></label><label>Telefone<input id="cliente-telefone" value="${escapeHtml(c.telefone || c.tel || '')}"></label></div><div class="form-row"><label>Cidade<input id="cliente-cidade" value="${escapeHtml(c.cidade || '')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado || '')}"></label></div><div class="form-row"><label>Vendedor responsável<select id="cliente-vendedor"><option value="">Sem vendedor</option>${vendedorOptions}</select></label><label>Status<select id="cliente-status"><option value="ativo" ${c.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${c.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-client>Salvar cliente</button>${c.id ? '<button type="button" class="btn" data-new-client>Novo cliente</button>' : ''}</div></section>`;
 }
 
@@ -711,7 +714,7 @@ async function saveClient() {
     cidade: ($('#cliente-cidade')?.value || '').trim(),
     estado: ($('#cliente-estado')?.value || '').trim().toUpperCase(),
     vendedorId,
-    vendedorNome: vendedor ? (vendedor.nome || vendedor.email || vendedor.id) : '',
+    vendedorNome: vendedor ? sellerName(vendedor) : '',
     status: $('#cliente-status')?.value === 'inativo' ? 'inativo' : 'ativo',
     atualizadoEm: fb.serverTimestamp()
   };
@@ -741,7 +744,7 @@ async function blockSellerAccess(id) {
   if (!isAdmin()) return toast('Somente admin bloqueia vendedores.');
   const vendedor = state.vendedores.find(v => v.id === id);
   if (!vendedor) return toast('Vendedor nao encontrado.');
-  if (!window.confirm(`Bloquear acesso de ${vendedor.nome || vendedor.email || id}?`)) return;
+  if (!window.confirm(`Bloquear acesso de ${sellerName(vendedor)}?`)) return;
   const motivo = (window.prompt('Motivo do bloqueio (opcional):', vendedor.motivoBloqueio || '') || '').trim();
   const update = {
     ativo: false,
@@ -758,7 +761,7 @@ async function reactivateSellerAccess(id) {
   if (!isAdmin()) return toast('Somente admin reativa vendedores.');
   const vendedor = state.vendedores.find(v => v.id === id);
   if (!vendedor) return toast('Vendedor nao encontrado.');
-  if (!window.confirm(`Reativar acesso de ${vendedor.nome || vendedor.email || id}?`)) return;
+  if (!window.confirm(`Reativar acesso de ${sellerName(vendedor)}?`)) return;
   await fb.setDoc(ref('users', id), {
     ativo: true,
     motivoBloqueio: '',

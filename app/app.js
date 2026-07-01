@@ -384,7 +384,8 @@ function sellerMonthlyGoalPanel() {
 
 function sellerNormalizationPatch(user) {
   const patch = {};
-  if (user?.role !== 'vendedor') patch.role = 'vendedor';
+  const type = userType(user);
+  if (!type || (type === 'vendedor' && user?.role !== 'vendedor')) patch.role = 'vendedor';
   if (!hasField(user, 'ativo')) patch.ativo = true;
   if (!hasField(user, 'bloqueado')) patch.bloqueado = false;
   if (!hasField(user, 'metaMensal')) patch.metaMensal = 0;
@@ -838,43 +839,62 @@ async function normalizeSellerUsers(button) {
   if (!isAdmin()) return toast('Somente admin normaliza vendedores.');
   if (button) button.disabled = true;
   try {
-    const { users, usersById, clientSellerIds, orderSellerIds, pedidos } = await loadMaintenanceData();
-    const inferredIds = new Set([...clientSellerIds, ...orderSellerIds]);
+    const { clientSellerIds, orderSellerIds, pedidos } = await loadMaintenanceData();
+    const sellerIds = [...new Set([...clientSellerIds, ...orderSellerIds])].sort();
     const sellerNames = orderSellerNames(pedidos);
-    const updates = [];
-    inferredIds.forEach(id => {
-      const existing = usersById.get(id);
-      if (existing && userType(existing) && !isSellerUser(existing)) return;
-      const base = existing || { id };
-      const patch = sellerNormalizationPatch(base);
-      if (!hasField(base, 'nome')) patch.nome = sellerNames.get(id) || 'Vendedor';
-      if (!hasField(base, 'email')) patch.email = '';
-      if (!existing) patch.criadoEm = fb.serverTimestamp();
-      updates.push({ id, patch });
-    });
-    users.filter(isSellerUser).forEach(user => {
-      if (inferredIds.has(user.id)) return;
-      const patch = sellerNormalizationPatch(user);
-      if (Object.keys(patch).length) updates.push({ id: user.id, patch });
-    });
-    const changed = updates.filter(item => Object.keys(item.patch).length);
-    for (let i = 0; i < changed.length; i += 450) {
-      const batch = fb.writeBatch(db);
-      changed.slice(i, i + 450).forEach(({ id, patch }) => {
-        batch.set(ref('users', id), { ...patch, atualizadoEm: fb.serverTimestamp() }, { merge: true });
-      });
-      await batch.commit();
+    const summary = { created: 0, updated: 0, unchanged: 0, existing: 0, errors: [] };
+
+    for (const id of sellerIds) {
+      try {
+        const userRef = ref('users', id);
+        const snap = await fb.getDoc(userRef);
+        const exists = snap.exists();
+        const current = exists ? { id, ...snap.data() } : { id };
+        if (exists) summary.existing += 1;
+        if (exists && userType(current) && !isSellerUser(current)) {
+          summary.unchanged += 1;
+          summary.errors.push(`${id}: documento existente nao parece vendedor`);
+          continue;
+        }
+
+        const patch = exists
+          ? sellerNormalizationPatch(current)
+          : { role: 'vendedor', ativo: true, bloqueado: false, metaMensal: 0, email: '' };
+        if (!hasField(current, 'nome')) patch.nome = sellerNames.get(id) || 'Vendedor';
+
+        if (!Object.keys(patch).length) {
+          summary.unchanged += 1;
+          continue;
+        }
+
+        await fb.setDoc(userRef, {
+          ...patch,
+          ...(exists ? {} : { criadoEm: fb.serverTimestamp() }),
+          atualizadoEm: fb.serverTimestamp()
+        }, { merge: true });
+        if (exists) summary.updated += 1;
+        else summary.created += 1;
+      } catch (err) {
+        console.error(err);
+        summary.errors.push(`${id}: ${err.message}`);
+      }
     }
+
     const refreshed = await fb.getDocs(col('users'));
     state.vendedores = refreshed.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(isSellerUser).sort(byName);
     setMaintenanceResult('Normalizacao de vendedores', [
-      `UIDs encontrados em clientes: ${clientSellerIds.size}`,
-      `UIDs encontrados em pedidos: ${orderSellerIds.size}`,
-      `Documentos criados ou atualizados: ${changed.length}`,
+      `Total de vendedorId encontrados em clientes: ${clientSellerIds.size}`,
+      `Total de vendedorId encontrados em pedidos: ${orderSellerIds.size}`,
+      `Total de UIDs unicos: ${sellerIds.length}`,
+      `users criados: ${summary.created}`,
+      `users atualizados: ${summary.updated}`,
+      `users ja existentes: ${summary.existing}`,
+      `users sem alteracao: ${summary.unchanged}`,
+      `erros: ${summary.errors.length ? summary.errors.join('; ') : 'nenhum'}`,
       `Vendedores disponiveis no admin: ${state.vendedores.length}`,
-      `UIDs processados: ${idsText([...inferredIds].sort())}`
+      `UIDs processados: ${idsText(sellerIds)}`
     ]);
-    toast(changed.length ? `${changed.length} vendedor(es) normalizado(s).` : 'Vendedores ja estavam normalizados.');
+    toast(summary.created || summary.updated ? `${summary.created + summary.updated} vendedor(es) normalizado(s).` : 'Vendedores ja estavam normalizados.');
   } catch (err) {
     console.error(err);
     toast(`Erro ao normalizar vendedores: ${err.message}`);

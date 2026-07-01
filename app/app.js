@@ -41,7 +41,7 @@ function navItems() { return isAdmin() ? ADMIN_NAV : VEND_NAV; }
 function vendedorNome() { return state.profile?.nome || state.user?.email || 'Vendedor'; }
 function ownClientes() { return state.clientes.filter(c => c.vendedorId === state.user?.uid); }
 function ownPedidos() { return state.pedidos.filter(p => p.vendedorId === state.user?.uid); }
-function activeProducts() { return state.produtos.filter(p => p.ativo !== false && p.status !== 'inativo'); }
+function activeProducts() { return state.produtos.filter(p => p.ativo !== false && !isInactiveStatus(p.status)); }
 function byCreatedDesc(a, b) { return tsMs(b.criadoEm || b.enviadoEm || b.atualizadoEm) - tsMs(a.criadoEm || a.enviadoEm || a.atualizadoEm); }
 function byName(a, b) { return (a.nome || a.razaoSocial || '').localeCompare(b.nome || b.razaoSocial || ''); }
 function productCode(p) { return p.codigo || p.ref || p.id; }
@@ -56,6 +56,16 @@ function productIdFromCode(code, name = '') {
 }
 function normalizeSearch(value) {
   return String(value || '').toLowerCase().replace(/\s+/g, '');
+}
+function normalizeStatus(value) {
+  return String(value || '').trim().toLowerCase();
+}
+function isInactiveStatus(value) {
+  return normalizeStatus(value) === 'inativo';
+}
+function normalizedProductActive(product) {
+  if (Object.prototype.hasOwnProperty.call(product, 'ativo')) return product.ativo !== false;
+  return !isInactiveStatus(product.status);
 }
 function safeNumber(value) {
   const number = Number(value || 0);
@@ -201,13 +211,14 @@ function listenDoc(source, callback) {
 
 async function normalizeLegacyActiveProducts(docs) {
   if (!isAdmin()) return;
-  const legacyProducts = docs.filter(p => !Object.prototype.hasOwnProperty.call(p, 'ativo') && p.status !== 'inativo');
+  const legacyProducts = docs.filter(p => !Object.prototype.hasOwnProperty.call(p, 'ativo'));
   for (let i = 0; i < legacyProducts.length; i += 450) {
     const batch = fb.writeBatch(db);
     legacyProducts.slice(i, i + 450).forEach(p => {
+      const ativo = normalizedProductActive(p);
       batch.update(ref('produtos', p.id), {
-        ativo: true,
-        status: p.status || 'ativo',
+        ativo,
+        status: ativo ? 'ativo' : 'inativo',
         atualizadoEm: fb.serverTimestamp()
       });
     });
@@ -218,25 +229,36 @@ async function normalizeLegacyActiveProducts(docs) {
 function startListeners() {
   state.unsubs.forEach(unsub => unsub());
   state.unsubs = [];
+  if (!state.user || !state.profile || !state.role || sellerAccessBlocked(state.profile) || state.profile.bloqueado) {
+    showBlockedAccess();
+    return;
+  }
   const uid = state.user.uid;
-  const pedidosQuery = isAdmin() ? fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')) : fb.query(col('pedidos'), fb.where('vendedorId', '==', uid));
-  const clientesQuery = isAdmin() ? col('clientes') : fb.query(col('clientes'), fb.where('vendedorId', '==', uid));
-  const produtosQuery = isAdmin() ? col('produtos') : fb.query(col('produtos'), fb.where('ativo', '==', true));
-  listen(pedidosQuery, docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
-  listen(clientesQuery, docs => { state.clientes = docs.sort(byName); rerender(); });
-  listen(produtosQuery, docs => {
-    if (isAdmin()) normalizeLegacyActiveProducts(docs).catch(err => {
-      console.error(err);
-      toast(`Erro ao normalizar produtos legados: ${err.message}`);
+  if (isAdmin()) {
+    listen(fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
+    listen(col('clientes'), docs => { state.clientes = docs.sort(byName); rerender(); });
+    listen(col('produtos'), docs => {
+      normalizeLegacyActiveProducts(docs).catch(err => {
+        console.error(err);
+        toast(`Erro ao normalizar produtos legados: ${err.message}`);
+      });
+      state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+      rerender();
     });
+    listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
+    return;
+  }
+  if (!isVend()) return;
+  listen(fb.query(col('pedidos'), fb.where('vendedorId', '==', uid)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
+  listen(fb.query(col('clientes'), fb.where('vendedorId', '==', uid)), docs => { state.clientes = docs.sort(byName); rerender(); });
+  listen(fb.query(col('produtos'), fb.where('ativo', '==', true)), docs => {
     state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     rerender();
   });
-  if (isAdmin()) listen(col('users'), docs => { state.vendedores = docs.filter(u => u.role === 'vendedor').sort(byName); rerender(); });
-  if (isVend()) listenDoc(ref('users', uid), doc => {
+  listenDoc(ref('users', uid), doc => {
     state.profile = doc;
     state.role = doc.role || state.role;
-    if (sellerAccessBlocked(doc)) { showBlockedAccess(); return; }
+    if (sellerAccessBlocked(doc) || doc.bloqueado) { showBlockedAccess(); return; }
     $('#user-name').textContent = state.profile.nome || state.user.email;
     rerender();
   });
@@ -381,7 +403,7 @@ function clientesList(list, admin) {
 }
 
 function productList(list, admin) {
-  if (!list.length) return '<div class="empty">Nenhum produto ativo encontrado.</div>';
+  if (!list.length) return `<div class="empty">${admin ? 'Nenhum produto encontrado.' : 'Nenhum produto ativo encontrado.'}</div>`;
   return `<div class="list">${list.map(p => productCard(p, admin)).join('')}</div>`;
 }
 
@@ -389,7 +411,7 @@ function filteredAdminProducts() {
   const term = normalizeSearch(state.adminProdutoBusca);
   if (!term) return state.produtos;
   return state.produtos.filter(p => {
-    const status = p.ativo === false || p.status === 'inativo' ? 'inativo' : 'ativo';
+    const status = p.ativo === false || isInactiveStatus(p.status) ? 'inativo' : 'ativo';
     return [p.codigo, p.ref, p.nome, p.descricao, p.marca, status].some(value => normalizeSearch(value).includes(term));
   });
 }
@@ -435,7 +457,7 @@ function productCard(p, admin) {
 
 function produtoForm() {
   const p = state.productEditId ? state.produtos.find(prod => prod.id === state.productEditId) || {} : {};
-  return `<section class="card"><div class="card-title"><h3>${p.id ? 'Editar produto' : 'Novo produto'}</h3></div><input type="hidden" id="prod-id" value="${escapeHtml(p.id || '')}"><div class="form-row"><label>Código<input id="prod-codigo" value="${escapeHtml(p.codigo || p.ref || '')}"></label><label>Nome<input id="prod-nome" value="${escapeHtml(p.nome || '')}"></label></div><div class="form-row"><label>Marca<input id="prod-marca" value="${escapeHtml(p.marca || '')}"></label><label>Preço<input id="prod-preco" type="number" min="0" step="0.01" value="${Number(p.preco || 0)}"></label></div><div class="form-row"><label>Estoque<input id="prod-estoque" type="number" min="0" value="${Number(p.estoque || 0)}"></label><label>Status<select id="prod-status"><option value="ativo" ${p.ativo === false || p.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${p.ativo === false || p.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-product>Salvar produto</button>${p.id ? '<button type="button" class="btn" data-new-product>Novo produto</button>' : ''}</div></section>`;
+  return `<section class="card"><div class="card-title"><h3>${p.id ? 'Editar produto' : 'Novo produto'}</h3></div><input type="hidden" id="prod-id" value="${escapeHtml(p.id || '')}"><div class="form-row"><label>Código<input id="prod-codigo" value="${escapeHtml(p.codigo || p.ref || '')}"></label><label>Nome<input id="prod-nome" value="${escapeHtml(p.nome || '')}"></label></div><div class="form-row"><label>Marca<input id="prod-marca" value="${escapeHtml(p.marca || '')}"></label><label>Preço<input id="prod-preco" type="number" min="0" step="0.01" value="${Number(p.preco || 0)}"></label></div><div class="form-row"><label>Estoque<input id="prod-estoque" type="number" min="0" value="${Number(p.estoque || 0)}"></label><label>Status<select id="prod-status"><option value="ativo" ${p.ativo === false || isInactiveStatus(p.status) ? '' : 'selected'}>Ativo</option><option value="inativo" ${p.ativo === false || isInactiveStatus(p.status) ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-product>Salvar produto</button>${p.id ? '<button type="button" class="btn" data-new-product>Novo produto</button>' : ''}</div></section>`;
 }
 
 function clienteForm() {

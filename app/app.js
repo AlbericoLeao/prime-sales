@@ -42,6 +42,8 @@ function vendedorNome() { return state.profile?.nome || state.user?.email || 'Ve
 function userType(user) { return String(user?.role || user?.perfil || user?.tipo || '').trim().toLowerCase(); }
 function isSellerUser(user) { return userType(user) === 'vendedor'; }
 function sellerName(user) { return user?.nome || user?.email || user?.id || 'Vendedor'; }
+function sellerBlocked(user) { return user?.ativo === false || user?.bloqueado === true; }
+function hasField(obj, field) { return Object.prototype.hasOwnProperty.call(obj || {}, field); }
 function ownClientes() { return state.clientes.filter(c => c.vendedorId === state.user?.uid); }
 function ownPedidos() { return state.pedidos.filter(p => p.vendedorId === state.user?.uid); }
 function activeProducts() { return state.produtos.filter(p => p.ativo !== false && !isInactiveStatus(p.status)); }
@@ -369,10 +371,21 @@ function sellerMonthlyGoalPanel() {
   return `<section class="card"><div class="card-title"><h3>Meta mensal</h3><span class="badge destaque">${escapeHtml(monthLabel())}</span></div><div class="grid three">${stat('Meta mensal', goalText)}${stat('Faturado no mês', money(data.totalFaturadoMes), 'gold')}${stat('Pedidos faturados', data.pedidosFaturados)}${stat('Atingimento', percent)}${stat('Quanto falta', remaining)}</div><div style="height:10px;background:var(--card2);border-radius:999px;overflow:hidden;margin-top:12px"><div style="height:100%;width:${progress}%;background:var(--gold)"></div></div><div class="row-sub">Atingimento: ${escapeHtml(percent)}</div>${superada}</section>`;
 }
 
+function sellerNormalizationPatch(user) {
+  const patch = {};
+  if (!isSellerUser(user)) return patch;
+  if (user?.role !== 'vendedor') patch.role = 'vendedor';
+  if (!hasField(user, 'ativo')) patch.ativo = true;
+  if (!hasField(user, 'bloqueado')) patch.bloqueado = false;
+  if (!hasField(user, 'metaMensal')) patch.metaMensal = 0;
+  return patch;
+}
+
 function vendedorMetasPanel() {
-  if (!state.vendedores.length) return '<section class="card"><div class="empty">Nenhum vendedor encontrado para definir meta.</div></section>';
-  return `<section class="card"><div class="card-title"><h3>Metas mensais dos vendedores</h3></div><div class="list">${state.vendedores.map(v => {
-    const blocked = v.ativo === false;
+  const normalizeAction = '<button type="button" class="btn small" data-normalize-sellers>Normalizar vendedores</button>';
+  if (!state.vendedores.length) return `<section class="card"><div class="card-title"><h3>Metas mensais dos vendedores</h3><div class="actions">${normalizeAction}</div></div><div class="empty">Nenhum vendedor encontrado para definir meta.<br>Cadastre ou corrija o documento do vendedor em users/{uid} com role: vendedor.</div></section>`;
+  return `<section class="card"><div class="card-title"><h3>Metas mensais dos vendedores</h3><div class="actions">${normalizeAction}</div></div><div class="list">${state.vendedores.map(v => {
+    const blocked = sellerBlocked(v);
     const status = blocked ? '<span class="badge rejeitado">Bloqueado</span>' : '<span class="badge faturado">Ativo</span>';
     const accessAction = blocked
       ? `<button type="button" class="btn small green" data-reactivate-seller="${v.id}">Reativar acesso</button>`
@@ -534,6 +547,7 @@ function bindPageEvents() {
   $$('[data-save-seller-goal]').forEach(btn => btn.onclick = () => saveSellerGoal(btn.dataset.saveSellerGoal));
   $$('[data-block-seller]').forEach(btn => btn.onclick = () => blockSellerAccess(btn.dataset.blockSeller));
   $$('[data-reactivate-seller]').forEach(btn => btn.onclick = () => reactivateSellerAccess(btn.dataset.reactivateSeller));
+  $('[data-normalize-sellers]')?.addEventListener('click', e => normalizeSellerUsers(e.currentTarget));
 }
 
 function bindStartOrderButtons() {
@@ -613,6 +627,7 @@ function updateQty(id, delta) {
 async function sendOrder(button) {
   if (!isVend()) return toast('Somente vendedores enviam pedidos.');
   if (!ensureSellerAccess()) return;
+  if (state.profile?.role !== 'vendedor') return toast('Cadastro do vendedor incompleto. Fale com o administrador.');
   const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && c.vendedorId === state.user.uid);
   const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
   if (!cliente) return toast('Selecione um cliente da sua carteira.');
@@ -650,7 +665,12 @@ async function sendOrder(button) {
     setPage('meus');
   } catch (err) {
     console.error(err);
-    toast(`Erro ao enviar pedido: ${err.message}`);
+    const message = String(err?.message || '');
+    if (message.includes('permission') || message.includes('permiss')) {
+      toast('Cadastro do vendedor incompleto. Fale com o administrador.');
+    } else {
+      toast(`Erro ao enviar pedido: ${err.message}`);
+    }
   } finally {
     if (button) button.disabled = false;
   }
@@ -740,6 +760,33 @@ async function saveSellerGoal(id) {
   toast('Meta mensal salva.');
 }
 
+async function normalizeSellerUsers(button) {
+  if (!isAdmin()) return toast('Somente admin normaliza vendedores.');
+  if (button) button.disabled = true;
+  try {
+    const snap = await fb.getDocs(col('users'));
+    const users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const sellers = users.filter(isSellerUser);
+    if (!sellers.length) return toast('Cadastre ou corrija o documento do vendedor em users/{uid} com role: vendedor.');
+    const updates = sellers.map(user => ({ user, patch: sellerNormalizationPatch(user) })).filter(item => Object.keys(item.patch).length);
+    for (let i = 0; i < updates.length; i += 450) {
+      const batch = fb.writeBatch(db);
+      updates.slice(i, i + 450).forEach(({ user, patch }) => {
+        batch.set(ref('users', user.id), { ...patch, atualizadoEm: fb.serverTimestamp() }, { merge: true });
+      });
+      await batch.commit();
+    }
+    state.vendedores = sellers.map(user => ({ ...user, ...sellerNormalizationPatch(user) })).sort(byName);
+    rerender();
+    toast(updates.length ? `${updates.length} vendedor(es) normalizado(s).` : 'Vendedores ja estavam normalizados.');
+  } catch (err) {
+    console.error(err);
+    toast(`Erro ao normalizar vendedores: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function blockSellerAccess(id) {
   if (!isAdmin()) return toast('Somente admin bloqueia vendedores.');
   const vendedor = state.vendedores.find(v => v.id === id);
@@ -748,6 +795,7 @@ async function blockSellerAccess(id) {
   const motivo = (window.prompt('Motivo do bloqueio (opcional):', vendedor.motivoBloqueio || '') || '').trim();
   const update = {
     ativo: false,
+    bloqueado: true,
     bloqueadoEm: fb.serverTimestamp(),
     bloqueadoPor: state.user.uid,
     atualizadoEm: fb.serverTimestamp()
@@ -764,6 +812,7 @@ async function reactivateSellerAccess(id) {
   if (!window.confirm(`Reativar acesso de ${sellerName(vendedor)}?`)) return;
   await fb.setDoc(ref('users', id), {
     ativo: true,
+    bloqueado: false,
     motivoBloqueio: '',
     reativadoEm: fb.serverTimestamp(),
     reativadoPor: state.user.uid,

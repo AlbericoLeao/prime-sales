@@ -20,6 +20,7 @@ const state = {
   catalogoBusca: '',
   adminProdutoBusca: '',
   adminClienteBusca: '',
+  adminMaintenanceResult: '',
   productEditId: '',
   clientEditId: '',
   accessBlocked: false
@@ -32,7 +33,7 @@ const STATUS = {
   rejeitado: 'Rejeitado',
   cancelado: 'Cancelado'
 };
-const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos']];
+const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos'], ['manutencao','⚙','Manutenção']];
 const VEND_NAV = [['carteira','👥','Carteira'], ['catalogo','📦','Catálogo'], ['meus','📋','Pedidos']];
 
 function isAdmin() { return state.role === 'admin'; }
@@ -44,6 +45,7 @@ function isSellerUser(user) { return userType(user) === 'vendedor'; }
 function sellerName(user) { return user?.nome || user?.email || user?.id || 'Vendedor'; }
 function sellerBlocked(user) { return user?.ativo === false || user?.bloqueado === true; }
 function hasField(obj, field) { return Object.prototype.hasOwnProperty.call(obj || {}, field); }
+function cleanUid(value) { return String(value || '').trim(); }
 function ownClientes() { return state.clientes.filter(c => c.vendedorId === state.user?.uid); }
 function ownPedidos() { return state.pedidos.filter(p => p.vendedorId === state.user?.uid); }
 function activeProducts() { return state.produtos.filter(p => p.ativo !== false && !isInactiveStatus(p.status)); }
@@ -99,6 +101,7 @@ function resetSessionState() {
   state.catalogoBusca = '';
   state.adminProdutoBusca = '';
   state.adminClienteBusca = '';
+  state.adminMaintenanceResult = '';
   state.productEditId = '';
   state.clientEditId = '';
   state.accessBlocked = false;
@@ -229,6 +232,7 @@ async function normalizeLegacyActiveProducts(docs) {
     });
     await batch.commit();
   }
+  return legacyProducts.length;
 }
 
 function startListeners() {
@@ -325,6 +329,7 @@ function renderPage() {
     pedidos: renderAdminPedidos,
     clientes: renderAdminClientes,
     produtos: renderAdminProdutos,
+    manutencao: renderAdminManutencao,
     carteira: renderCarteira,
     catalogo: renderCatalogo,
     meus: renderMeusPedidos
@@ -354,6 +359,12 @@ function renderAdminProdutos() {
     `<div id="admin-product-list">${productList(filteredAdminProducts(), true)}</div>`;
 }
 
+function renderAdminManutencao() {
+  return head('Manutencao', 'Diagnostico e recuperacao de dados administrativos.') +
+    `<section class="card"><div class="card-title"><h3>Recuperacao de dados</h3></div><div class="actions"><button type="button" class="btn small" data-diagnose-sellers>Diagnosticar vendedores</button><button type="button" class="btn small primary" data-normalize-sellers>Normalizar vendedores</button><button type="button" class="btn small" data-normalize-products>Normalizar produtos</button><button type="button" class="btn small" data-diagnose-clients>Diagnosticar clientes sem vendedor</button><button type="button" class="btn small" data-diagnose-orders>Diagnosticar pedidos sem vendedor</button></div></section>` +
+    `<section class="card"><div class="card-title"><h3>Resultado</h3></div><pre style="white-space:pre-wrap;margin:0">${escapeHtml(state.adminMaintenanceResult || 'Execute uma acao de manutencao para ver o resumo.')}</pre></section>`;
+}
+
 function renderCarteira() {
   const term = state.clienteFiltro.toLowerCase();
   const list = ownClientes().filter(c => !term || (c.nome || c.razaoSocial || '').toLowerCase().includes(term) || (c.doc || c.cnpj || '').toLowerCase().includes(term));
@@ -373,12 +384,53 @@ function sellerMonthlyGoalPanel() {
 
 function sellerNormalizationPatch(user) {
   const patch = {};
-  if (!isSellerUser(user)) return patch;
   if (user?.role !== 'vendedor') patch.role = 'vendedor';
   if (!hasField(user, 'ativo')) patch.ativo = true;
   if (!hasField(user, 'bloqueado')) patch.bloqueado = false;
   if (!hasField(user, 'metaMensal')) patch.metaMensal = 0;
   return patch;
+}
+
+function sellerIdsFrom(records) {
+  return new Set(records.map(item => cleanUid(item.vendedorId)).filter(Boolean));
+}
+
+function missingIds(ids, usersById) {
+  return [...ids].filter(id => !usersById.has(id)).sort();
+}
+
+function orderSellerNames(pedidos) {
+  const names = new Map();
+  pedidos.forEach(p => {
+    const id = cleanUid(p.vendedorId);
+    const name = String(p.vendedorNome || '').trim();
+    if (id && name && !names.has(id)) names.set(id, name);
+  });
+  return names;
+}
+
+async function loadMaintenanceData() {
+  const [usersSnap, clientesSnap, pedidosSnap] = await Promise.all([
+    fb.getDocs(col('users')),
+    fb.getDocs(col('clientes')),
+    fb.getDocs(col('pedidos'))
+  ]);
+  const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const clientes = clientesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const pedidos = pedidosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const usersById = new Map(users.map(user => [user.id, user]));
+  const clientSellerIds = sellerIdsFrom(clientes);
+  const orderSellerIds = sellerIdsFrom(pedidos);
+  return { users, clientes, pedidos, usersById, clientSellerIds, orderSellerIds };
+}
+
+function setMaintenanceResult(title, lines) {
+  state.adminMaintenanceResult = [title, '', ...lines].join('\n');
+  renderPage();
+}
+
+function idsText(ids) {
+  return ids.length ? ids.join(', ') : 'nenhum';
 }
 
 function vendedorMetasPanel() {
@@ -548,6 +600,10 @@ function bindPageEvents() {
   $$('[data-block-seller]').forEach(btn => btn.onclick = () => blockSellerAccess(btn.dataset.blockSeller));
   $$('[data-reactivate-seller]').forEach(btn => btn.onclick = () => reactivateSellerAccess(btn.dataset.reactivateSeller));
   $('[data-normalize-sellers]')?.addEventListener('click', e => normalizeSellerUsers(e.currentTarget));
+  $('[data-diagnose-sellers]')?.addEventListener('click', e => diagnoseSellers(e.currentTarget));
+  $('[data-normalize-products]')?.addEventListener('click', e => normalizeProducts(e.currentTarget));
+  $('[data-diagnose-clients]')?.addEventListener('click', e => diagnoseClientsWithoutSeller(e.currentTarget));
+  $('[data-diagnose-orders]')?.addEventListener('click', e => diagnoseOrdersWithoutSeller(e.currentTarget));
 }
 
 function bindStartOrderButtons() {
@@ -624,10 +680,28 @@ function updateQty(id, delta) {
   renderPage();
 }
 
+function sellerIncompleteMessage() {
+  return 'Cadastro do vendedor incompleto. Peça ao administrador para executar a normalização de vendedores.';
+}
+
+function sellerProfileReady(profile) {
+  return profile?.role === 'vendedor' && hasField(profile, 'ativo') && hasField(profile, 'bloqueado');
+}
+
+async function loadCurrentSellerProfile() {
+  const snap = await fb.getDoc(ref('users', state.user.uid));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
 async function sendOrder(button) {
   if (!isVend()) return toast('Somente vendedores enviam pedidos.');
   if (!ensureSellerAccess()) return;
-  if (state.profile?.role !== 'vendedor') return toast('Cadastro do vendedor incompleto. Fale com o administrador.');
+  const currentProfile = await loadCurrentSellerProfile();
+  if (!currentProfile || !sellerProfileReady(currentProfile)) return toast(sellerIncompleteMessage());
+  state.profile = currentProfile;
+  state.role = currentProfile.role;
+  if (sellerAccessBlocked(currentProfile) || currentProfile.bloqueado) { showBlockedAccess(); return; }
   const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && c.vendedorId === state.user.uid);
   const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
   if (!cliente) return toast('Selecione um cliente da sua carteira.');
@@ -667,7 +741,7 @@ async function sendOrder(button) {
     console.error(err);
     const message = String(err?.message || '');
     if (message.includes('permission') || message.includes('permiss')) {
-      toast('Cadastro do vendedor incompleto. Fale com o administrador.');
+      toast(sellerIncompleteMessage());
     } else {
       toast(`Erro ao enviar pedido: ${err.message}`);
     }
@@ -764,24 +838,134 @@ async function normalizeSellerUsers(button) {
   if (!isAdmin()) return toast('Somente admin normaliza vendedores.');
   if (button) button.disabled = true;
   try {
-    const snap = await fb.getDocs(col('users'));
-    const users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const sellers = users.filter(isSellerUser);
-    if (!sellers.length) return toast('Cadastre ou corrija o documento do vendedor em users/{uid} com role: vendedor.');
-    const updates = sellers.map(user => ({ user, patch: sellerNormalizationPatch(user) })).filter(item => Object.keys(item.patch).length);
-    for (let i = 0; i < updates.length; i += 450) {
+    const { users, usersById, clientSellerIds, orderSellerIds, pedidos } = await loadMaintenanceData();
+    const inferredIds = new Set([...clientSellerIds, ...orderSellerIds]);
+    const sellerNames = orderSellerNames(pedidos);
+    const updates = [];
+    inferredIds.forEach(id => {
+      const existing = usersById.get(id);
+      if (existing && userType(existing) && !isSellerUser(existing)) return;
+      const base = existing || { id };
+      const patch = sellerNormalizationPatch(base);
+      if (!hasField(base, 'nome')) patch.nome = sellerNames.get(id) || 'Vendedor';
+      if (!hasField(base, 'email')) patch.email = '';
+      if (!existing) patch.criadoEm = fb.serverTimestamp();
+      updates.push({ id, patch });
+    });
+    users.filter(isSellerUser).forEach(user => {
+      if (inferredIds.has(user.id)) return;
+      const patch = sellerNormalizationPatch(user);
+      if (Object.keys(patch).length) updates.push({ id: user.id, patch });
+    });
+    const changed = updates.filter(item => Object.keys(item.patch).length);
+    for (let i = 0; i < changed.length; i += 450) {
       const batch = fb.writeBatch(db);
-      updates.slice(i, i + 450).forEach(({ user, patch }) => {
-        batch.set(ref('users', user.id), { ...patch, atualizadoEm: fb.serverTimestamp() }, { merge: true });
+      changed.slice(i, i + 450).forEach(({ id, patch }) => {
+        batch.set(ref('users', id), { ...patch, atualizadoEm: fb.serverTimestamp() }, { merge: true });
       });
       await batch.commit();
     }
-    state.vendedores = sellers.map(user => ({ ...user, ...sellerNormalizationPatch(user) })).sort(byName);
-    rerender();
-    toast(updates.length ? `${updates.length} vendedor(es) normalizado(s).` : 'Vendedores ja estavam normalizados.');
+    const refreshed = await fb.getDocs(col('users'));
+    state.vendedores = refreshed.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(isSellerUser).sort(byName);
+    setMaintenanceResult('Normalizacao de vendedores', [
+      `UIDs encontrados em clientes: ${clientSellerIds.size}`,
+      `UIDs encontrados em pedidos: ${orderSellerIds.size}`,
+      `Documentos criados ou atualizados: ${changed.length}`,
+      `Vendedores disponiveis no admin: ${state.vendedores.length}`,
+      `UIDs processados: ${idsText([...inferredIds].sort())}`
+    ]);
+    toast(changed.length ? `${changed.length} vendedor(es) normalizado(s).` : 'Vendedores ja estavam normalizados.');
   } catch (err) {
     console.error(err);
     toast(`Erro ao normalizar vendedores: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function diagnoseSellers(button) {
+  if (!isAdmin()) return toast('Somente admin diagnostica vendedores.');
+  if (button) button.disabled = true;
+  try {
+    const { users, usersById, clientSellerIds, orderSellerIds } = await loadMaintenanceData();
+    const sellers = users.filter(isSellerUser);
+    setMaintenanceResult('Diagnostico de vendedores', [
+      `Vendedores encontrados em users: ${sellers.length}`,
+      `UIDs encontrados em clientes: ${clientSellerIds.size}`,
+      `UIDs encontrados em pedidos: ${orderSellerIds.size}`,
+      `UIDs com clientes atribuidos mas sem users: ${idsText(missingIds(clientSellerIds, usersById))}`,
+      `UIDs com pedidos mas sem users: ${idsText(missingIds(orderSellerIds, usersById))}`
+    ]);
+    toast('Diagnostico de vendedores concluido.');
+  } catch (err) {
+    console.error(err);
+    toast(`Erro ao diagnosticar vendedores: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function normalizeProducts(button) {
+  if (!isAdmin()) return toast('Somente admin normaliza produtos.');
+  if (button) button.disabled = true;
+  try {
+    const snap = await fb.getDocs(col('produtos'));
+    const produtos = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const count = await normalizeLegacyActiveProducts(produtos);
+    setMaintenanceResult('Normalizacao de produtos', [
+      `Produtos verificados: ${produtos.length}`,
+      `Produtos sem campo ativo normalizados: ${count || 0}`
+    ]);
+    toast(count ? `${count} produto(s) normalizado(s).` : 'Produtos ja estavam normalizados.');
+  } catch (err) {
+    console.error(err);
+    toast(`Erro ao normalizar produtos: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function diagnoseClientsWithoutSeller(button) {
+  if (!isAdmin()) return toast('Somente admin diagnostica clientes.');
+  if (button) button.disabled = true;
+  try {
+    const { clientes, usersById } = await loadMaintenanceData();
+    const semCampo = clientes.filter(c => !hasField(c, 'vendedorId')).length;
+    const vazio = clientes.filter(c => hasField(c, 'vendedorId') && !cleanUid(c.vendedorId)).length;
+    const inexistente = clientes.filter(c => cleanUid(c.vendedorId) && !usersById.has(cleanUid(c.vendedorId))).length;
+    setMaintenanceResult('Diagnostico de clientes sem vendedor', [
+      `Clientes verificados: ${clientes.length}`,
+      `Sem campo vendedorId: ${semCampo}`,
+      `Com vendedorId vazio: ${vazio}`,
+      `Com vendedorId sem documento em users: ${inexistente}`
+    ]);
+    toast('Diagnostico de clientes concluido.');
+  } catch (err) {
+    console.error(err);
+    toast(`Erro ao diagnosticar clientes: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function diagnoseOrdersWithoutSeller(button) {
+  if (!isAdmin()) return toast('Somente admin diagnostica pedidos.');
+  if (button) button.disabled = true;
+  try {
+    const { pedidos, usersById } = await loadMaintenanceData();
+    const semCampo = pedidos.filter(p => !hasField(p, 'vendedorId')).length;
+    const vazio = pedidos.filter(p => hasField(p, 'vendedorId') && !cleanUid(p.vendedorId)).length;
+    const inexistente = pedidos.filter(p => cleanUid(p.vendedorId) && !usersById.has(cleanUid(p.vendedorId))).length;
+    setMaintenanceResult('Diagnostico de pedidos sem vendedor', [
+      `Pedidos verificados: ${pedidos.length}`,
+      `Sem campo vendedorId: ${semCampo}`,
+      `Com vendedorId vazio: ${vazio}`,
+      `Com vendedorId sem documento em users: ${inexistente}`
+    ]);
+    toast('Diagnostico de pedidos concluido.');
+  } catch (err) {
+    console.error(err);
+    toast(`Erro ao diagnosticar pedidos: ${err.message}`);
   } finally {
     if (button) button.disabled = false;
   }

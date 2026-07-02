@@ -1,4 +1,4 @@
-import { auth, db, fb, col, ref, createSecondaryUser } from './firebase-service.js';
+import { auth, db, fb, col, ref } from './firebase-service.js';
 import { $, $$, money, tsMs, formatDate, escapeHtml, toast } from './utils.js';
 import { gerarPedidoPDF } from './pdf.js';
 
@@ -27,26 +27,40 @@ const state = {
 };
 
 const STATUS = {
+  pendente: 'Pendente',
   enviado: 'Enviado',
   aprovado: 'Aprovado',
   faturado: 'Faturado',
   rejeitado: 'Rejeitado',
   cancelado: 'Cancelado'
 };
+const ADMIN_EMAILS = ['albericoprestes2014@gmail.com'];
 const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['vendedores','👤','Vendedores'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos']];
 const VEND_NAV = [['carteira','👥','Carteira'], ['catalogo','📦','Catálogo'], ['meus','📋','Pedidos']];
 
+function roleOf(user) {
+  const explicitRole = userType(user);
+  if (explicitRole) return explicitRole;
+  const email = String(user?.email || '').trim().toLowerCase();
+  return ADMIN_EMAILS.includes(email) ? 'admin' : '';
+}
 function isAdmin() { return state.role === 'admin'; }
 function isVend() { return state.role === 'vendedor'; }
 function navItems() { return isAdmin() ? ADMIN_NAV : VEND_NAV; }
 function vendedorNome() { return state.profile?.nome || state.user?.email || 'Vendedor'; }
+function currentUserEmail() { return String(state.user?.email || '').trim().toLowerCase(); }
 function userType(user) { return String(user?.role || user?.perfil || user?.tipo || '').trim().toLowerCase(); }
-function isSellerUser(user) { return userType(user) === 'vendedor'; }
+function isSellerUser(user) { return !!sellerEmail(user) && !ADMIN_EMAILS.includes(sellerEmail(user)); }
+function sellerEmail(user) { return String(user?.email || user?.id || '').trim().toLowerCase(); }
 function sellerName(user) { return user?.nome || user?.email || user?.id || 'Vendedor'; }
-function sellerBlocked(user) { return user?.ativo === false || user?.bloqueado === true; }
+function sellerBlocked(user) {
+  const status = String(user?.status || '').trim().toLowerCase();
+  if (status) return status === 'bloqueado';
+  return user?.ativo === false || user?.bloqueado === true;
+}
 function cleanUid(value) { return String(value || '').trim(); }
-function ownClientes() { return state.clientes.filter(c => cleanUid(c.vendedorId) === state.user?.uid); }
-function ownPedidos() { return state.pedidos.filter(p => p.vendedorId === state.user?.uid); }
+function ownClientes() { const email = currentUserEmail(); return state.clientes.filter(c => sellerEmail({ email: c.vendedorEmail }) === email); }
+function ownPedidos() { const email = currentUserEmail(); return state.pedidos.filter(p => sellerEmail({ email: p.vendedorEmail }) === email); }
 function activeProducts() { return state.produtos.filter(p => p.ativo !== false && !isInactiveStatus(p.status)); }
 function byCreatedDesc(a, b) { return tsMs(b.criadoEm || b.enviadoEm || b.atualizadoEm) - tsMs(a.criadoEm || a.enviadoEm || a.atualizadoEm); }
 function byName(a, b) { return (a.nome || a.razaoSocial || a.email || a.id || '').localeCompare(b.nome || b.razaoSocial || b.email || b.id || ''); }
@@ -70,8 +84,8 @@ function isInactiveStatus(value) {
   return normalizeStatus(value) === 'inativo';
 }
 function cartTotal() { return Object.values(state.cart).reduce((sum, item) => sum + Number(item.subtotal || 0), 0); }
-function statusHistory(status) { return { status, at: new Date().toISOString(), by: state.user?.uid || '', byName: vendedorNome() }; }
-function sellerAccessBlocked(profile = state.profile) { return (profile?.role || 'vendedor') === 'vendedor' && profile?.ativo === false; }
+function statusHistory(status) { return { status, at: new Date().toISOString(), by: currentUserEmail(), byName: vendedorNome() }; }
+function sellerAccessBlocked(profile = state.profile) { return roleOf(profile) === 'vendedor' && sellerBlocked(profile); }
 
 function resetSessionState() {
   state.unsubs.forEach(unsub => unsub());
@@ -215,24 +229,24 @@ function startListeners() {
     showBlockedAccess();
     return;
   }
-  const uid = state.user.uid;
   if (isAdmin()) {
     listen(fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
     listen(col('clientes'), docs => { state.clientes = docs.sort(byName); rerender(); });
     listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
-    listen(col('users'), docs => { state.vendedores = docs.filter(isSellerUser).sort(byName); rerender(); });
+    listen(col('vendedores'), docs => { state.vendedores = docs.filter(isSellerUser).sort(byName); rerender(); });
     return;
   }
   if (!isVend()) return;
-  listen(fb.query(col('pedidos'), fb.where('vendedorId', '==', uid)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
-  listen(fb.query(col('clientes'), fb.where('vendedorId', '==', uid)), docs => { state.clientes = docs.sort(byName); rerender(); });
+  const email = currentUserEmail();
+  listen(fb.query(col('pedidos'), fb.where('vendedorEmail', '==', email)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
+  listen(fb.query(col('clientes'), fb.where('vendedorEmail', '==', email)), docs => { state.clientes = docs.sort(byName); rerender(); });
   listen(fb.query(col('produtos'), fb.where('ativo', '==', true)), docs => {
     state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     rerender();
   });
-  listenDoc(ref('users', uid), doc => {
+  listenDoc(ref('vendedores', email), doc => {
     state.profile = doc;
-    state.role = doc.role || state.role;
+    state.role = roleOf(doc) || state.role;
     if (sellerAccessBlocked(doc) || doc.bloqueado) { showBlockedAccess(); return; }
     $('#user-name').textContent = state.profile.nome || state.user.email;
     rerender();
@@ -270,10 +284,10 @@ function renderPage() {
 }
 
 function renderAdminPedidos() {
-  const statuses = ['todos', 'enviado', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
+  const statuses = ['todos', 'pendente', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
   const list = state.pedidoFiltro === 'todos' ? state.pedidos : state.pedidos.filter(p => p.status === state.pedidoFiltro);
   return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.') +
-    `<div class="grid four">${stat('Enviados', state.pedidos.filter(p => p.status === 'enviado').length, 'gold')}${stat('Aprovados', state.pedidos.filter(p => p.status === 'aprovado').length)}${stat('Faturados', state.pedidos.filter(p => p.status === 'faturado').length)}${stat('Total faturado', money(state.pedidos.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
+    `<div class="grid four">${stat('Pendentes', state.pedidos.filter(p => p.status === 'pendente').length, 'gold')}${stat('Aprovados', state.pedidos.filter(p => p.status === 'aprovado').length)}${stat('Faturados', state.pedidos.filter(p => p.status === 'faturado').length)}${stat('Total faturado', money(state.pedidos.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
     `<div class="filters">${statuses.map(s => `<button type="button" class="btn small ${state.pedidoFiltro === s ? 'primary' : ''}" data-filter-ped="${s}">${s === 'todos' ? 'Todos' : STATUS[s]}</button>`).join('')}</div>` + orderList(list);
 }
 
@@ -301,9 +315,9 @@ function renderCarteira() {
 }
 
 function sellerForClient(client) {
-  const vendedorId = cleanUid(client?.vendedorId);
-  if (!vendedorId) return null;
-  return state.vendedores.find(v => v.id === vendedorId) || null;
+  const email = sellerEmail({ email: client?.vendedorEmail });
+  if (!email) return null;
+  return state.vendedores.find(v => sellerEmail(v) === email) || null;
 }
 
 function clientSellerStatus(client) {
@@ -314,7 +328,7 @@ function clientSellerStatus(client) {
 function vendedorForm() {
   const v = state.sellerEditId ? state.vendedores.find(seller => seller.id === state.sellerEditId) || {} : {};
   const editing = !!v.id;
-  return `<section class="card"><div class="card-title"><h3>${editing ? 'Editar vendedor' : 'Novo vendedor'}</h3></div><input type="hidden" id="seller-id" value="${escapeHtml(v.id || '')}"><label>Nome<input id="seller-nome" value="${escapeHtml(v.nome || '')}"></label><div class="form-row"><label>E-mail<input id="seller-email" type="email" value="${escapeHtml(v.email || '')}" ${editing ? 'disabled' : ''}></label><label>Senha${editing ? ' (somente novo cadastro)' : ''}<input id="seller-password" type="password" ${editing ? 'disabled' : ''}></label></div><div class="form-row"><label>Status<select id="seller-status"><option value="ativo" ${sellerBlocked(v) ? '' : 'selected'}>Ativo</option><option value="bloqueado" ${sellerBlocked(v) ? 'selected' : ''}>Bloqueado</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-seller>Salvar vendedor</button>${editing ? '<button type="button" class="btn" data-new-seller>Novo vendedor</button>' : ''}</div></section>`;
+  return `<section class="card"><div class="card-title"><h3>${editing ? 'Editar vendedor' : 'Novo vendedor'}</h3></div><input type="hidden" id="seller-id" value="${escapeHtml(v.id || '')}"><label>Nome<input id="seller-nome" value="${escapeHtml(v.nome || '')}"></label><div class="form-row"><label>E-mail<input id="seller-email" type="email" value="${escapeHtml(v.email || v.id || '')}" ${editing ? 'disabled' : ''}></label><label>Status<select id="seller-status"><option value="ativo" ${sellerBlocked(v) ? '' : 'selected'}>Ativo</option><option value="bloqueado" ${sellerBlocked(v) ? 'selected' : ''}>Bloqueado</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-seller>Salvar vendedor</button>${editing ? '<button type="button" class="btn" data-new-seller>Novo vendedor</button>' : ''}</div></section>`;
 }
 
 function vendedoresList() {
@@ -341,7 +355,7 @@ function renderCatalogo() {
 }
 
 function renderMeusPedidos() {
-  const statuses = ['todos', 'enviado', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
+  const statuses = ['todos', 'pendente', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
   const mine = ownPedidos();
   const list = state.pedidoFiltro === 'todos' ? mine : mine.filter(p => p.status === state.pedidoFiltro);
   return head('Meus Pedidos', 'Acompanhe os pedidos enviados ao admin.') +
@@ -388,11 +402,12 @@ function filteredAdminClients() {
       c.cidade,
       c.estado,
       c.vendedorNome,
+      c.vendedorEmail,
       sellerStatus.label,
       sellerStatus.detail,
       vendedor.nome,
       vendedor.email,
-      c.vendedorId
+      vendedor.id
     ].some(value => normalizeSearch(value).includes(term));
   });
 }
@@ -419,7 +434,11 @@ function produtoForm() {
 
 function clienteForm() {
   const c = state.clientEditId ? state.clientes.find(cli => cli.id === state.clientEditId) || {} : {};
-  const vendedorOptions = state.vendedores.map(v => `<option value="${v.id}" ${cleanUid(c.vendedorId) === v.id ? 'selected' : ''}>${escapeHtml(sellerName(v))}</option>`).join('');
+  const currentSellerEmail = sellerEmail({ email: c.vendedorEmail });
+  const vendedorOptions = state.vendedores.map(v => {
+    const email = sellerEmail(v);
+    return `<option value="${escapeHtml(email)}" ${currentSellerEmail === email ? 'selected' : ''}>${escapeHtml(`${sellerName(v)} (${email})`)}</option>`;
+  }).join('');
   const sellerStatus = clientSellerStatus(c);
   const assignmentStatus = c.id ? `<div class="row-sub"><span class="badge ${sellerStatus.badge}">${escapeHtml(sellerStatus.label)}</span> ${escapeHtml(sellerStatus.detail)}</div>` : '';
   return `<section class="card"><div class="card-title"><h3>${c.id ? 'Editar cliente' : 'Novo cliente'}</h3></div>${assignmentStatus}<input type="hidden" id="cliente-id" value="${escapeHtml(c.id || '')}"><label>Razao social / Nome<input id="cliente-nome" value="${escapeHtml(c.nome || c.razaoSocial || '')}"></label><div class="form-row"><label>CNPJ<input id="cliente-cnpj" value="${escapeHtml(c.cnpj || c.doc || '')}"></label><label>Telefone<input id="cliente-telefone" value="${escapeHtml(c.telefone || c.tel || '')}"></label></div><div class="form-row"><label>Cidade<input id="cliente-cidade" value="${escapeHtml(c.cidade || '')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado || '')}"></label></div><div class="form-row"><label>Vendedor responsavel<select id="cliente-vendedor"><option value="">Selecione um vendedor</option>${vendedorOptions}</select></label><label>Status<select id="cliente-status"><option value="ativo" ${c.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${c.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-client>Salvar cliente</button>${c.id ? '<button type="button" class="btn" data-new-client>Novo cliente</button>' : ''}</div></section>`;
@@ -432,8 +451,7 @@ function orderList(list) {
 
 function orderCard(p) {
   const actions = [`<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`];
-  if (isAdmin() && p.status === 'enviado') actions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button><button type="button" class="btn red small" data-cancel-order="${p.id}">Cancelar</button>`);
-  if (isAdmin() && p.status === 'aprovado') actions.push(`<button type="button" class="btn blue small" data-bill="${p.id}">Marcar como faturado</button><button type="button" class="btn red small" data-cancel-order="${p.id}">Cancelar</button>`);
+  if (isAdmin() && p.status === 'pendente') actions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button>`);
   const itens = (p.itens || []).map(item => `<div class="row-sub">${escapeHtml(item.codigo || '')} · ${escapeHtml(item.nome || '')} · ${escapeHtml(item.marca || '')} · ${item.qty}x · desc. ${item.descontoPct || 0}% · ${money(item.subtotal)}</div>`).join('');
   return `<article class="row-card"><div class="row-top"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span></div>${itens}<div class="row-top" style="margin-top:10px"><strong>${money(p.total || 0)}</strong><div class="actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
 }
@@ -478,8 +496,6 @@ function bindPageEvents() {
   $('[data-send-order]')?.addEventListener('click', e => sendOrder(e.currentTarget));
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
-  $$('[data-bill]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.bill, 'faturado'));
-  $$('[data-cancel-order]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.cancelOrder, 'cancelado'));
   $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
   $$('[data-edit-product]').forEach(btn => btn.onclick = () => { state.productEditId = btn.dataset.editProduct; renderPage(); });
   $('[data-new-product]')?.addEventListener('click', () => { state.productEditId = ''; renderPage(); });
@@ -573,11 +589,11 @@ function sellerIncompleteMessage() {
 }
 
 function sellerProfileReady(profile) {
-  return profile?.role === 'vendedor';
+  return sellerEmail(profile) === currentUserEmail() && !sellerBlocked(profile);
 }
 
 async function loadCurrentSellerProfile() {
-  const snap = await fb.getDoc(ref('users', state.user.uid));
+  const snap = await fb.getDoc(ref('vendedores', currentUserEmail()));
   if (!snap.exists()) return null;
   return { id: snap.id, ...snap.data() };
 }
@@ -588,9 +604,10 @@ async function sendOrder(button) {
   const currentProfile = await loadCurrentSellerProfile();
   if (!currentProfile || !sellerProfileReady(currentProfile)) return toast(sellerIncompleteMessage());
   state.profile = currentProfile;
-  state.role = currentProfile.role;
+  state.role = 'vendedor';
   if (sellerAccessBlocked(currentProfile) || currentProfile.bloqueado) { showBlockedAccess(); return; }
-  const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && c.vendedorId === state.user.uid);
+  const email = currentUserEmail();
+  const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && sellerEmail({ email: c.vendedorEmail }) === email);
   const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
   if (!cliente) return toast('Selecione um cliente da sua carteira.');
   if (!itens.length) return toast('Adicione produtos ao pedido.');
@@ -599,7 +616,7 @@ async function sendOrder(button) {
   try {
     await fb.addDoc(col('pedidos'), {
       numero,
-      vendedorId: state.user.uid,
+      vendedorEmail: email,
       vendedorNome: vendedorNome(),
       clienteId: cliente.id,
       cliente: {
@@ -614,8 +631,8 @@ async function sendOrder(button) {
       itens,
       observacoes: state.pedidoObs.trim(),
       total: cartTotal(),
-      status: 'enviado',
-      historico: [statusHistory('enviado')],
+      status: 'pendente',
+      historico: [statusHistory('pendente')],
       enviadoEm: fb.serverTimestamp(),
       criadoEm: fb.serverTimestamp(),
       atualizadoEm: fb.serverTimestamp()
@@ -638,32 +655,30 @@ async function sendOrder(button) {
   }
 }
 
+async function saveSellerDoc(email, data, isNewDoc) {
+  await fb.setDoc(ref('vendedores', email), {
+    ...data,
+    atualizadoEm: fb.serverTimestamp(),
+    ...(isNewDoc ? { criadoEm: fb.serverTimestamp() } : {})
+  }, { merge: true });
+}
+
 async function saveSeller() {
   if (!isAdmin()) return toast('Somente admin salva vendedores.');
-  const id = $('#seller-id')?.value || '';
+  const id = ($('#seller-id')?.value || '').trim().toLowerCase();
   const nome = ($('#seller-nome')?.value || '').trim();
-  const email = ($('#seller-email')?.value || '').trim();
-  const password = $('#seller-password')?.value || '';
+  const email = (id || $('#seller-email')?.value || '').trim().toLowerCase();
   const blocked = $('#seller-status')?.value === 'bloqueado';
   if (!nome) return toast('Informe o nome do vendedor.');
+  if (!email) return toast('Informe o e-mail do vendedor.');
 
   try {
-    let uid = id;
-    if (!uid) {
-      if (!email || !password) return toast('Informe e-mail e senha para cadastrar vendedor.');
-      const cred = await createSecondaryUser(email, password);
-      uid = cred.user.uid;
-    }
-    await fb.setDoc(ref('users', uid), {
+    await saveSellerDoc(email, {
       nome,
-      email: email || state.vendedores.find(v => v.id === uid)?.email || '',
-      role: 'vendedor',
-      ativo: !blocked,
-      bloqueado: blocked,
-      atualizadoEm: fb.serverTimestamp(),
-      ...(id ? {} : { criadoEm: fb.serverTimestamp() })
-    }, { merge: true });
-    state.sellerEditId = uid;
+      email,
+      status: blocked ? 'bloqueado' : 'ativo'
+    }, !id);
+    state.sellerEditId = email;
     toast('Vendedor salvo.');
   } catch (err) {
     console.error(err);
@@ -717,8 +732,8 @@ async function saveClient() {
   const id = $('#cliente-id')?.value || '';
   const nome = ($('#cliente-nome')?.value || '').trim();
   if (!nome) return toast('Informe razao social / nome do cliente.');
-  const vendedorId = $('#cliente-vendedor')?.value || '';
-  const vendedor = state.vendedores.find(v => v.id === vendedorId);
+  const vendedorEmail = ($('#cliente-vendedor')?.value || '').trim().toLowerCase();
+  const vendedor = state.vendedores.find(v => sellerEmail(v) === vendedorEmail);
   if (!vendedor) return toast('Selecione um vendedor existente para o cliente.');
   const data = {
     nome,
@@ -729,7 +744,7 @@ async function saveClient() {
     tel: ($('#cliente-telefone')?.value || '').trim(),
     cidade: ($('#cliente-cidade')?.value || '').trim(),
     estado: ($('#cliente-estado')?.value || '').trim().toUpperCase(),
-    vendedorId,
+    vendedorEmail,
     vendedorNome: vendedor ? sellerName(vendedor) : '',
     status: $('#cliente-status')?.value === 'inativo' ? 'inativo' : 'ativo',
     atualizadoEm: fb.serverTimestamp()
@@ -751,14 +766,13 @@ async function blockSellerAccess(id) {
   if (!window.confirm(`Bloquear acesso de ${sellerName(vendedor)}?`)) return;
   const motivo = (window.prompt('Motivo do bloqueio (opcional):', vendedor.motivoBloqueio || '') || '').trim();
   const update = {
-    ativo: false,
-    bloqueado: true,
+    status: 'bloqueado',
     bloqueadoEm: fb.serverTimestamp(),
-    bloqueadoPor: state.user.uid,
+    bloqueadoPor: currentUserEmail(),
     atualizadoEm: fb.serverTimestamp()
   };
   if (motivo) update.motivoBloqueio = motivo;
-  await fb.setDoc(ref('users', id), update, { merge: true });
+  await fb.setDoc(ref('vendedores', id), update, { merge: true });
   toast('Acesso do vendedor bloqueado.');
 }
 
@@ -767,12 +781,11 @@ async function reactivateSellerAccess(id) {
   const vendedor = state.vendedores.find(v => v.id === id);
   if (!vendedor) return toast('Selecione um vendedor valido.');
   if (!window.confirm(`Reativar acesso de ${sellerName(vendedor)}?`)) return;
-  await fb.setDoc(ref('users', id), {
-    ativo: true,
-    bloqueado: false,
+  await fb.setDoc(ref('vendedores', id), {
+    status: 'ativo',
     motivoBloqueio: '',
     reativadoEm: fb.serverTimestamp(),
-    reativadoPor: state.user.uid,
+    reativadoPor: currentUserEmail(),
     atualizadoEm: fb.serverTimestamp()
   }, { merge: true });
   toast('Acesso do vendedor reativado.');
@@ -782,7 +795,7 @@ async function changeOrderStatus(id, status) {
   if (!isAdmin()) return toast('Somente admin altera status.');
   const pedido = state.pedidos.find(p => p.id === id);
   if (!pedido) return;
-  const allowed = { enviado: ['aprovado', 'rejeitado', 'cancelado'], aprovado: ['faturado', 'cancelado'] };
+  const allowed = { pendente: ['aprovado', 'rejeitado'] };
   if (!allowed[pedido.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[pedido.status] || pedido.status} → ${STATUS[status] || status}.`);
   const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(pedido.historico || []), statusHistory(status)] };
   if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(pedido); update.estoqueBaixado = true; }
@@ -839,12 +852,16 @@ async function onAuth(user) {
   if (!user) { showLogin(); return; }
   hideProtectedUi();
   try {
-    const snap = await fb.getDoc(ref('users', user.uid));
-    if (!snap.exists()) { await fb.signOut(auth); showLogin('Usuário sem cadastro no sistema.'); return; }
-    const profile = { id: user.uid, ...snap.data() };
+    const authEmail = String(user.email || '').trim().toLowerCase();
+    const isAdminEmail = ADMIN_EMAILS.includes(authEmail);
+    const snap = isAdminEmail ? null : await fb.getDoc(ref('vendedores', authEmail));
+    if (!isAdminEmail && !snap.exists()) { await fb.signOut(auth); showLogin('Seu cadastro de vendedor não foi encontrado. Fale com o administrador.'); return; }
+    const profile = isAdminEmail
+      ? { id: authEmail, email: authEmail, nome: user.email, role: 'admin', status: 'ativo' }
+      : { id: authEmail, ...snap.data(), email: authEmail, role: 'vendedor' };
     state.user = user;
     state.profile = profile;
-    state.role = profile.role || 'vendedor';
+    state.role = roleOf({ ...profile, email: profile.email || user.email }) || 'vendedor';
     if (sellerAccessBlocked(profile) || profile.bloqueado) { showBlockedAccess(); return; }
     state.page = isAdmin() ? 'pedidos' : 'carteira';
     $('#auth').classList.add('hidden');

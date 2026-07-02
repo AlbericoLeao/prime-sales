@@ -5,81 +5,80 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
-    }
-
-    function activeUser() {
-      return signedIn()
-        && userDoc().exists()
-        && userDoc().data.ativo != false
-        && userDoc().data.bloqueado != true;
-    }
-
-    function role() {
-      return activeUser()
-        ? (userDoc().data.role != null
-          ? userDoc().data.role
-          : (userDoc().data.perfil != null ? userDoc().data.perfil : userDoc().data.tipo))
-        : null;
-    }
-
-    function adminEmail() {
-      return signedIn()
-        && request.auth.token.email == 'albericoprestes2014@gmail.com';
+    function email() {
+      return signedIn() && request.auth.token.email is string
+        ? request.auth.token.email.lower()
+        : '';
     }
 
     function admin() {
-      return adminEmail() || role() == 'admin';
+      return email() == 'albericoprestes2014@gmail.com';
     }
 
-    function vendedor() {
-      return role() == 'vendedor';
+    function ownSellerDoc(sellerEmail) {
+      return signedIn() && sellerEmail == email();
+    }
+
+    function activeSeller() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/vendedores/$(email()))
+        && get(/databases/$(database)/documents/vendedores/$(email())).data.status == 'ativo';
     }
 
     function activeProduct() {
-      return resource.data.ativo == true;
+      return resource.data.ativo == true
+        || resource.data.status == 'ativo';
+    }
+
+    function assignedToSeller() {
+      return activeSeller()
+        && resource.data.vendedorEmail == email();
     }
 
     function assignedClient(clienteId) {
       return clienteId is string
         && exists(/databases/$(database)/documents/clientes/$(clienteId))
-        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorId == request.auth.uid;
+        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorEmail == email();
     }
 
     function validSellerOrderCreate() {
-      return vendedor()
-        && request.resource.data.vendedorId == request.auth.uid
-        && request.resource.data.status == 'enviado'
+      return activeSeller()
+        && request.resource.data.vendedorEmail == email()
+        && request.resource.data.status == 'pendente'
         && assignedClient(request.resource.data.clienteId);
     }
 
     function validAdminOrderDecision() {
       return admin()
-        && resource.data.status == 'enviado'
+        && resource.data.status == 'pendente'
         && request.resource.data.status in ['aprovado', 'rejeitado']
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'historico', 'atualizadoEm', 'aprovadoEm', 'rejeitadoEm', 'estoqueBaixado'
         ]);
     }
 
-    match /users/{uid} {
-      allow read: if admin() || (signedIn() && request.auth.uid == uid);
-      allow create, update, delete: if admin();
+    match /vendedores/{sellerEmail} {
+      allow read: if admin() || ownSellerDoc(sellerEmail);
+      allow create, update: if admin()
+        && request.resource.data.email == sellerEmail
+        && request.resource.data.status in ['ativo', 'bloqueado'];
+      allow delete: if false;
     }
 
     match /produtos/{id} {
-      allow read: if admin() || (vendedor() && activeProduct());
-      allow create, update, delete: if admin();
+      allow read: if admin() || (activeSeller() && activeProduct());
+      allow create, update: if admin();
+      allow delete: if false;
     }
 
     match /clientes/{id} {
-      allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
-      allow create, update, delete: if admin();
+      allow read: if admin() || assignedToSeller();
+      allow create, update: if admin();
+      allow delete: if false;
     }
 
     match /pedidos/{id} {
-      allow read: if admin() || (vendedor() && resource.data.vendedorId == request.auth.uid);
+      allow read: if admin() || assignedToSeller();
       allow create: if admin() || validSellerOrderCreate();
       allow update: if validAdminOrderDecision();
       allow delete: if false;

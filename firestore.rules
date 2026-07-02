@@ -1,28 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
+    function isSignedIn() {
       return request.auth != null;
     }
 
-    function email() {
-      return signedIn() && request.auth.token.email is string
-        ? request.auth.token.email.lower()
-        : '';
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
     }
 
-    function admin() {
-      return email() == 'albericoprestes2014@gmail.com';
+    function userDoc() {
+      return get(userPath());
     }
 
-    function ownSellerDoc(sellerEmail) {
-      return signedIn() && sellerEmail == email();
+    function isActiveUser() {
+      return isSignedIn()
+        && exists(userPath())
+        && userDoc().data.bloqueado != true;
     }
 
-    function activeSeller() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/vendedores/$(email()))
-        && get(/databases/$(database)/documents/vendedores/$(email())).data.status == 'ativo';
+    function isAdmin() {
+      return isActiveUser()
+        && userDoc().data.role == 'admin';
+    }
+
+    function isVendedor() {
+      return isActiveUser()
+        && userDoc().data.role == 'vendedor';
     }
 
     function activeProduct() {
@@ -31,55 +35,79 @@ service cloud.firestore {
     }
 
     function assignedToSeller() {
-      return activeSeller()
-        && resource.data.vendedorEmail == email();
+      return isVendedor()
+        && resource.data.vendedorId == request.auth.uid;
     }
 
     function assignedClient(clienteId) {
       return clienteId is string
+        && clienteId.size() > 0
         && exists(/databases/$(database)/documents/clientes/$(clienteId))
-        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorEmail == email();
+        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorId == request.auth.uid;
+    }
+
+    function validOrderItems() {
+      return request.resource.data.itens is list
+        && request.resource.data.itens.size() > 0;
     }
 
     function validSellerOrderCreate() {
-      return activeSeller()
-        && request.resource.data.vendedorEmail == email()
+      return isVendedor()
+        && request.resource.data.vendedorId == request.auth.uid
+        && request.resource.data.vendedorNome is string
+        && request.resource.data.vendedorNome.size() > 0
+        && request.resource.data.clienteId is string
+        && request.resource.data.clienteId.size() > 0
+        && request.resource.data.clienteNome is string
+        && request.resource.data.clienteNome.size() > 0
         && request.resource.data.status == 'pendente'
+        && request.resource.data.total is number
+        && request.resource.data.total > 0
+        && validOrderItems()
         && assignedClient(request.resource.data.clienteId);
     }
 
     function validAdminOrderDecision() {
-      return admin()
+      return isAdmin()
         && resource.data.status == 'pendente'
         && request.resource.data.status in ['aprovado', 'rejeitado']
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'historico', 'atualizadoEm', 'aprovadoEm', 'rejeitadoEm', 'estoqueBaixado'
+          'status',
+          'historico',
+          'atualizadoEm',
+          'aprovadoEm',
+          'aprovadoPor',
+          'aprovadoPorEmail',
+          'rejeitadoEm',
+          'rejeitadoPor',
+          'rejeitadoPorEmail',
+          'observacaoAdmin',
+          'estoqueBaixado'
         ]);
     }
 
-    match /vendedores/{sellerEmail} {
-      allow read: if admin() || ownSellerDoc(sellerEmail);
-      allow create, update: if admin()
-        && request.resource.data.email == sellerEmail
-        && request.resource.data.status in ['ativo', 'bloqueado'];
+    match /users/{uid} {
+      allow get: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow list: if isAdmin();
+      allow create, update: if isAdmin();
       allow delete: if false;
     }
 
     match /produtos/{id} {
-      allow read: if admin() || (activeSeller() && activeProduct());
-      allow create, update: if admin();
+      allow read: if isAdmin() || (isVendedor() && activeProduct());
+      allow create, update: if isAdmin();
       allow delete: if false;
     }
 
     match /clientes/{id} {
-      allow read: if admin() || assignedToSeller();
-      allow create, update: if admin();
+      allow read: if isAdmin() || assignedToSeller();
+      allow create, update: if isAdmin();
       allow delete: if false;
     }
 
     match /pedidos/{id} {
-      allow read: if admin() || assignedToSeller();
-      allow create: if admin() || validSellerOrderCreate();
+      allow read: if isAdmin() || assignedToSeller();
+      allow create: if isAdmin() || validSellerOrderCreate();
       allow update: if validAdminOrderDecision();
       allow delete: if false;
     }

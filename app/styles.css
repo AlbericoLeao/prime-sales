@@ -619,6 +619,18 @@ textarea:focus {
   color: #fff;
 }
 
+.orders-filters {
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+
+.orders-filters .btn {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 12px;
+  box-shadow: none;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -655,6 +667,11 @@ textarea:focus {
 
 .badge.rascunho {
   background: #EEF2F7;
+  color: var(--muted);
+}
+
+.badge.arquivado {
+  background: rgba(107, 114, 128, .12);
   color: var(--muted);
 }
 
@@ -696,6 +713,49 @@ textarea:focus {
   color: var(--muted);
   margin-top: 4px;
   line-height: 1.4;
+}
+
+.order-card {
+  padding: 12px;
+  box-shadow: none;
+}
+
+.order-card.archived {
+  opacity: .72;
+}
+
+.order-head {
+  align-items: flex-start;
+}
+
+.order-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.order-item {
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.order-total {
+  align-items: center;
+  margin-top: 10px;
+}
+
+.order-total strong {
+  color: var(--navy);
+  font-size: 18px;
+}
+
+.order-actions {
+  justify-content: flex-end;
+}
+
+.order-note {
+  font-size: 11px;
 }
 
 .product-card {
@@ -958,6 +1018,21 @@ textarea:focus {
 
   .actions .btn {
     flex: 1;
+  }
+
+  .order-head,
+  .order-total {
+    display: grid;
+    gap: 8px;
+  }
+
+  .order-badges,
+  .order-actions {
+    justify-content: flex-start;
+  }
+
+  .order-actions .btn {
+    flex: 1 1 42%;
   }
 
   .filters .btn {

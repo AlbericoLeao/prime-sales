@@ -49,20 +49,18 @@ function isVend() { return state.role === 'vendedor'; }
 function navItems() { return isAdmin() ? ADMIN_NAV : VEND_NAV; }
 function vendedorNome() { return state.profile?.nome || state.user?.email || 'Vendedor'; }
 function currentUserEmail() { return String(state.user?.email || '').trim().toLowerCase(); }
-function currentUserId() { return String(state.user?.uid || '').trim(); }
 function userType(user) { return String(user?.role || user?.perfil || user?.tipo || '').trim().toLowerCase(); }
-function isSellerUser(user) { return userType(user) === 'vendedor'; }
-function sellerId(user) { return cleanUid(user?.uid || user?.id); }
+function isSellerUser(user) { return !!sellerEmail(user) && !ADMIN_EMAILS.includes(sellerEmail(user)); }
 function sellerEmail(user) { return String(user?.email || user?.id || '').trim().toLowerCase(); }
 function sellerName(user) { return user?.nome || user?.email || user?.id || 'Vendedor'; }
 function sellerBlocked(user) {
   const status = String(user?.status || '').trim().toLowerCase();
   if (status) return status === 'bloqueado';
-  return user?.bloqueado === true;
+  return user?.ativo === false || user?.bloqueado === true;
 }
 function cleanUid(value) { return String(value || '').trim(); }
-function ownClientes() { const uid = currentUserId(); return state.clientes.filter(c => cleanUid(c.vendedorId) === uid); }
-function ownPedidos() { const uid = currentUserId(); return state.pedidos.filter(p => cleanUid(p.vendedorId) === uid); }
+function ownClientes() { const email = currentUserEmail(); return state.clientes.filter(c => sellerEmail({ email: c.vendedorEmail }) === email); }
+function ownPedidos() { const email = currentUserEmail(); return state.pedidos.filter(p => sellerEmail({ email: p.vendedorEmail }) === email); }
 function activeProducts() { return state.produtos.filter(p => p.ativo !== false && !isInactiveStatus(p.status)); }
 function byCreatedDesc(a, b) { return tsMs(b.criadoEm || b.enviadoEm || b.atualizadoEm) - tsMs(a.criadoEm || a.enviadoEm || a.atualizadoEm); }
 function byName(a, b) { return (a.nome || a.razaoSocial || a.email || a.id || '').localeCompare(b.nome || b.razaoSocial || b.email || b.id || ''); }
@@ -86,15 +84,8 @@ function isInactiveStatus(value) {
   return normalizeStatus(value) === 'inativo';
 }
 function cartTotal() { return Object.values(state.cart).reduce((sum, item) => sum + Number(item.subtotal || 0), 0); }
-function statusHistory(status) { return { status, at: new Date().toISOString(), by: currentUserId(), byEmail: currentUserEmail(), byName: vendedorNome() }; }
+function statusHistory(status) { return { status, at: new Date().toISOString(), by: currentUserEmail(), byName: vendedorNome() }; }
 function sellerAccessBlocked(profile = state.profile) { return roleOf(profile) === 'vendedor' && sellerBlocked(profile); }
-function friendlyFirestoreError(err, fallback = 'Operação não concluída.') {
-  const code = String(err?.code || '').toLowerCase();
-  const message = String(err?.message || '').toLowerCase();
-  if (code.includes('permission') || message.includes('permission') || message.includes('permiss')) return 'Sem permissão para concluir esta operação.';
-  if (message.includes('not found') || message.includes('perfil')) return 'Usuário sem perfil em users.';
-  return `${fallback} ${err?.message || ''}`.trim();
-}
 
 function resetSessionState() {
   state.unsubs.forEach(unsub => unsub());
@@ -222,25 +213,19 @@ function renderNav() {
 }
 
 function listen(source, callback) {
-  const unsub = fb.onSnapshot(source, snap => callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), err => {
-    console.error('Erro ao carregar dados do Firestore:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao carregar dados.'));
-  });
+  const unsub = fb.onSnapshot(source, snap => callback(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), err => toast(`Erro ao carregar dados: ${err.message}`));
   state.unsubs.push(unsub);
 }
 
 function listenDoc(source, callback) {
-  const unsub = fb.onSnapshot(source, snap => { if (snap.exists()) callback({ id: snap.id, ...snap.data() }); }, err => {
-    console.error('Erro ao carregar perfil do Firestore:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao carregar perfil.'));
-  });
+  const unsub = fb.onSnapshot(source, snap => { if (snap.exists()) callback({ id: snap.id, ...snap.data() }); }, err => toast(`Erro ao carregar dados: ${err.message}`));
   state.unsubs.push(unsub);
 }
 
 function startListeners() {
   state.unsubs.forEach(unsub => unsub());
   state.unsubs = [];
-  if (!state.user || !state.profile || !state.role || sellerAccessBlocked(state.profile)) {
+  if (!state.user || !state.profile || !state.role || sellerAccessBlocked(state.profile) || state.profile.bloqueado) {
     showBlockedAccess();
     return;
   }
@@ -248,21 +233,21 @@ function startListeners() {
     listen(fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
     listen(col('clientes'), docs => { state.clientes = docs.sort(byName); rerender(); });
     listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
-    listen(fb.query(col('users'), fb.where('role', '==', 'vendedor')), docs => { state.vendedores = docs.filter(isSellerUser).sort(byName); rerender(); });
+    listen(col('vendedores'), docs => { state.vendedores = docs.filter(isSellerUser).sort(byName); rerender(); });
     return;
   }
   if (!isVend()) return;
-  const uid = currentUserId();
-  listen(fb.query(col('pedidos'), fb.where('vendedorId', '==', uid)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
-  listen(fb.query(col('clientes'), fb.where('vendedorId', '==', uid)), docs => { state.clientes = docs.sort(byName); rerender(); });
+  const email = currentUserEmail();
+  listen(fb.query(col('pedidos'), fb.where('vendedorEmail', '==', email)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
+  listen(fb.query(col('clientes'), fb.where('vendedorEmail', '==', email)), docs => { state.clientes = docs.sort(byName); rerender(); });
   listen(fb.query(col('produtos'), fb.where('ativo', '==', true)), docs => {
     state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
     rerender();
   });
-  listenDoc(ref('users', uid), doc => {
+  listenDoc(ref('vendedores', email), doc => {
     state.profile = doc;
     state.role = roleOf(doc) || state.role;
-    if (sellerAccessBlocked(doc)) { showBlockedAccess(); return; }
+    if (sellerAccessBlocked(doc) || doc.bloqueado) { showBlockedAccess(); return; }
     $('#user-name').textContent = state.profile.nome || state.user.email;
     rerender();
   });
@@ -330,9 +315,9 @@ function renderCarteira() {
 }
 
 function sellerForClient(client) {
-  const uid = cleanUid(client?.vendedorId);
-  if (!uid) return null;
-  return state.vendedores.find(v => sellerId(v) === uid) || null;
+  const email = sellerEmail({ email: client?.vendedorEmail });
+  if (!email) return null;
+  return state.vendedores.find(v => sellerEmail(v) === email) || null;
 }
 
 function clientSellerStatus(client) {
@@ -449,10 +434,10 @@ function produtoForm() {
 
 function clienteForm() {
   const c = state.clientEditId ? state.clientes.find(cli => cli.id === state.clientEditId) || {} : {};
-  const currentSellerId = cleanUid(c.vendedorId);
+  const currentSellerEmail = sellerEmail({ email: c.vendedorEmail });
   const vendedorOptions = state.vendedores.map(v => {
-    const uid = sellerId(v);
-    return `<option value="${escapeHtml(uid)}" ${currentSellerId === uid ? 'selected' : ''}>${escapeHtml(`${sellerName(v)} (${v.email || uid})`)}</option>`;
+    const email = sellerEmail(v);
+    return `<option value="${escapeHtml(email)}" ${currentSellerEmail === email ? 'selected' : ''}>${escapeHtml(`${sellerName(v)} (${email})`)}</option>`;
   }).join('');
   const sellerStatus = clientSellerStatus(c);
   const assignmentStatus = c.id ? `<div class="row-sub"><span class="badge ${sellerStatus.badge}">${escapeHtml(sellerStatus.label)}</span> ${escapeHtml(sellerStatus.detail)}</div>` : '';
@@ -600,15 +585,15 @@ function updateQty(id, delta) {
 }
 
 function sellerIncompleteMessage() {
-  return 'Cadastro do vendedor incompleto em users. Peça ao administrador para revisar seu acesso.';
+  return 'Cadastro do vendedor incompleto. Peça ao administrador para revisar seu acesso.';
 }
 
 function sellerProfileReady(profile) {
-  return sellerId(profile) === currentUserId() && userType(profile) === 'vendedor' && !sellerBlocked(profile);
+  return sellerEmail(profile) === currentUserEmail() && !sellerBlocked(profile);
 }
 
 async function loadCurrentSellerProfile() {
-  const snap = await fb.getDoc(ref('users', currentUserId()));
+  const snap = await fb.getDoc(ref('vendedores', currentUserEmail()));
   if (!snap.exists()) return null;
   return { id: snap.id, ...snap.data() };
 }
@@ -620,27 +605,20 @@ async function sendOrder(button) {
   if (!currentProfile || !sellerProfileReady(currentProfile)) return toast(sellerIncompleteMessage());
   state.profile = currentProfile;
   state.role = 'vendedor';
-  if (sellerAccessBlocked(currentProfile)) { showBlockedAccess(); return; }
-  const uid = currentUserId();
+  if (sellerAccessBlocked(currentProfile) || currentProfile.bloqueado) { showBlockedAccess(); return; }
   const email = currentUserEmail();
-  const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && cleanUid(c.vendedorId) === uid);
+  const cliente = state.clientes.find(c => c.id === state.pedidoClienteId && sellerEmail({ email: c.vendedorEmail }) === email);
   const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
-  const total = cartTotal();
   if (!cliente) return toast('Selecione um cliente da sua carteira.');
   if (!itens.length) return toast('Adicione produtos ao pedido.');
-  if (!total) return toast('Pedido inválido: total zerado.');
-  if (!uid) return toast('Usuário sem UID autenticado.');
-  if (!vendedorNome().trim()) return toast('Usuário sem perfil em users.');
   const numero = `PS-${Date.now().toString(36).toUpperCase()}`;
   if (button) button.disabled = true;
   try {
     await fb.addDoc(col('pedidos'), {
       numero,
-      vendedorId: uid,
       vendedorEmail: email,
       vendedorNome: vendedorNome(),
       clienteId: cliente.id,
-      clienteNome: cliente.nome || cliente.razaoSocial || '',
       cliente: {
         id: cliente.id || '',
         nome: cliente.nome || '',
@@ -652,7 +630,7 @@ async function sendOrder(button) {
       },
       itens,
       observacoes: state.pedidoObs.trim(),
-      total,
+      total: cartTotal(),
       status: 'pendente',
       historico: [statusHistory('pendente')],
       enviadoEm: fb.serverTimestamp(),
@@ -665,19 +643,21 @@ async function sendOrder(button) {
     toast('Pedido enviado para aprovação.');
     setPage('meus');
   } catch (err) {
-    console.error('Erro ao enviar pedido:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao enviar pedido.'));
+    console.error(err);
+    const message = String(err?.message || '');
+    if (message.includes('permission') || message.includes('permiss')) {
+      toast(sellerIncompleteMessage());
+    } else {
+      toast(`Erro ao enviar pedido: ${err.message}`);
+    }
   } finally {
     if (button) button.disabled = false;
   }
 }
 
 async function saveSellerDoc(email, data, isNewDoc) {
-  const id = cleanUid(data.uid || email);
-  await fb.setDoc(ref('users', id), {
+  await fb.setDoc(ref('vendedores', email), {
     ...data,
-    uid: id,
-    role: 'vendedor',
     atualizadoEm: fb.serverTimestamp(),
     ...(isNewDoc ? { criadoEm: fb.serverTimestamp() } : {})
   }, { merge: true });
@@ -685,58 +665,49 @@ async function saveSellerDoc(email, data, isNewDoc) {
 
 async function saveSeller() {
   if (!isAdmin()) return toast('Somente admin salva vendedores.');
-  const id = ($('#seller-id')?.value || '').trim();
+  const id = ($('#seller-id')?.value || '').trim().toLowerCase();
   const nome = ($('#seller-nome')?.value || '').trim();
-  const email = ($('#seller-email')?.value || '').trim().toLowerCase();
+  const email = (id || $('#seller-email')?.value || '').trim().toLowerCase();
   const blocked = $('#seller-status')?.value === 'bloqueado';
   if (!nome) return toast('Informe o nome do vendedor.');
-  if (!id) return toast('Selecione um vendedor existente em users para editar.');
   if (!email) return toast('Informe o e-mail do vendedor.');
 
   try {
     await saveSellerDoc(email, {
-      uid: id || email,
       nome,
       email,
-      role: 'vendedor',
-      bloqueado: blocked,
       status: blocked ? 'bloqueado' : 'ativo'
-    }, false);
-    state.sellerEditId = id;
+    }, !id);
+    state.sellerEditId = email;
     toast('Vendedor salvo.');
   } catch (err) {
-    console.error('Erro ao salvar vendedor:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao salvar vendedor.'));
+    console.error(err);
+    toast(`Erro ao salvar vendedor: ${err.message}`);
   }
 }
 
 async function saveProduct() {
   if (!isAdmin()) return toast('Somente admin salva produtos.');
-  try {
-    const codigo = ($('#prod-codigo')?.value || '').trim();
-    const nome = ($('#prod-nome')?.value || '').trim();
-    const currentId = $('#prod-id')?.value || '';
-    const id = currentId || productIdFromCode(codigo, nome);
-    if (!id || !codigo || !nome) return toast('Informe código e nome do produto.');
-    const existing = findProductByCode(codigo);
-    if (existing && existing.id !== currentId) return toast('Produto já cadastrado. Edite o item existente para alterar preço ou estoque.');
-    const status = $('#prod-status')?.value === 'inativo' ? 'inativo' : 'ativo';
-    await saveProductDoc(id, {
-      codigo,
-      ref: codigo,
-      nome,
-      marca: ($('#prod-marca')?.value || '').trim(),
-      preco: Number($('#prod-preco')?.value || 0),
-      estoque: Number($('#prod-estoque')?.value || 0),
-      ativo: status === 'ativo',
-      status
-    });
-    state.productEditId = id;
-    toast('Produto salvo.');
-  } catch (err) {
-    console.error('Erro ao salvar produto:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao salvar produto.'));
-  }
+  const codigo = ($('#prod-codigo')?.value || '').trim();
+  const nome = ($('#prod-nome')?.value || '').trim();
+  const currentId = $('#prod-id')?.value || '';
+  const id = currentId || productIdFromCode(codigo, nome);
+  if (!id || !codigo || !nome) return toast('Informe código e nome do produto.');
+  const existing = findProductByCode(codigo);
+  if (existing && existing.id !== currentId) return toast('Produto já cadastrado. Edite o item existente para alterar preço ou estoque.');
+  const status = $('#prod-status')?.value === 'inativo' ? 'inativo' : 'ativo';
+  await saveProductDoc(id, {
+    codigo,
+    ref: codigo,
+    nome,
+    marca: ($('#prod-marca')?.value || '').trim(),
+    preco: Number($('#prod-preco')?.value || 0),
+    estoque: Number($('#prod-estoque')?.value || 0),
+    ativo: status === 'ativo',
+    status
+  });
+  state.productEditId = id;
+  toast('Produto salvo.');
 }
 
 async function upsertProductByCode(data) {
@@ -758,116 +729,81 @@ async function saveProductDoc(id, data) {
 
 async function saveClient() {
   if (!isAdmin()) return toast('Somente admin salva clientes.');
-  try {
-    const id = $('#cliente-id')?.value || '';
-    const nome = ($('#cliente-nome')?.value || '').trim();
-    if (!nome) return toast('Informe razao social / nome do cliente.');
-    const vendedorId = ($('#cliente-vendedor')?.value || '').trim();
-    const vendedor = state.vendedores.find(v => sellerId(v) === vendedorId);
-    if (!vendedor) return toast('Selecione um vendedor existente para o cliente.');
-    const data = {
-      nome,
-      razaoSocial: nome,
-      cnpj: ($('#cliente-cnpj')?.value || '').trim(),
-      doc: ($('#cliente-cnpj')?.value || '').trim(),
-      telefone: ($('#cliente-telefone')?.value || '').trim(),
-      tel: ($('#cliente-telefone')?.value || '').trim(),
-      cidade: ($('#cliente-cidade')?.value || '').trim(),
-      estado: ($('#cliente-estado')?.value || '').trim().toUpperCase(),
-      vendedorId,
-      vendedorEmail: vendedor.email || '',
-      vendedorNome: vendedor ? sellerName(vendedor) : '',
-      status: $('#cliente-status')?.value === 'inativo' ? 'inativo' : 'ativo',
-      atualizadoEm: fb.serverTimestamp()
-    };
-    if (id) {
-      await fb.setDoc(ref('clientes', id), data, { merge: true });
-      state.clientEditId = id;
-    } else {
-      const docRef = await fb.addDoc(col('clientes'), { ...data, criadoEm: fb.serverTimestamp() });
-      state.clientEditId = docRef.id;
-    }
-    toast('Cliente salvo.');
-  } catch (err) {
-    console.error('Erro ao salvar cliente:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao salvar cliente.'));
+  const id = $('#cliente-id')?.value || '';
+  const nome = ($('#cliente-nome')?.value || '').trim();
+  if (!nome) return toast('Informe razao social / nome do cliente.');
+  const vendedorEmail = ($('#cliente-vendedor')?.value || '').trim().toLowerCase();
+  const vendedor = state.vendedores.find(v => sellerEmail(v) === vendedorEmail);
+  if (!vendedor) return toast('Selecione um vendedor existente para o cliente.');
+  const data = {
+    nome,
+    razaoSocial: nome,
+    cnpj: ($('#cliente-cnpj')?.value || '').trim(),
+    doc: ($('#cliente-cnpj')?.value || '').trim(),
+    telefone: ($('#cliente-telefone')?.value || '').trim(),
+    tel: ($('#cliente-telefone')?.value || '').trim(),
+    cidade: ($('#cliente-cidade')?.value || '').trim(),
+    estado: ($('#cliente-estado')?.value || '').trim().toUpperCase(),
+    vendedorEmail,
+    vendedorNome: vendedor ? sellerName(vendedor) : '',
+    status: $('#cliente-status')?.value === 'inativo' ? 'inativo' : 'ativo',
+    atualizadoEm: fb.serverTimestamp()
+  };
+  if (id) {
+    await fb.setDoc(ref('clientes', id), data, { merge: true });
+    state.clientEditId = id;
+  } else {
+    const docRef = await fb.addDoc(col('clientes'), { ...data, criadoEm: fb.serverTimestamp() });
+    state.clientEditId = docRef.id;
   }
+  toast('Cliente salvo.');
 }
 
 async function blockSellerAccess(id) {
   if (!isAdmin()) return toast('Somente admin bloqueia vendedores.');
-  try {
-    const vendedor = state.vendedores.find(v => v.id === id);
-    if (!vendedor) return toast('Selecione um vendedor valido.');
-    if (!window.confirm(`Bloquear acesso de ${sellerName(vendedor)}?`)) return;
-    const motivo = (window.prompt('Motivo do bloqueio (opcional):', vendedor.motivoBloqueio || '') || '').trim();
-    const update = {
-      bloqueado: true,
-      status: 'bloqueado',
-      bloqueadoEm: fb.serverTimestamp(),
-      bloqueadoPor: currentUserId(),
-      bloqueadoPorEmail: currentUserEmail(),
-      atualizadoEm: fb.serverTimestamp()
-    };
-    if (motivo) update.motivoBloqueio = motivo;
-    await fb.setDoc(ref('users', id), update, { merge: true });
-    toast('Acesso do vendedor bloqueado.');
-  } catch (err) {
-    console.error('Erro ao bloquear vendedor:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao bloquear vendedor.'));
-  }
+  const vendedor = state.vendedores.find(v => v.id === id);
+  if (!vendedor) return toast('Selecione um vendedor valido.');
+  if (!window.confirm(`Bloquear acesso de ${sellerName(vendedor)}?`)) return;
+  const motivo = (window.prompt('Motivo do bloqueio (opcional):', vendedor.motivoBloqueio || '') || '').trim();
+  const update = {
+    status: 'bloqueado',
+    bloqueadoEm: fb.serverTimestamp(),
+    bloqueadoPor: currentUserEmail(),
+    atualizadoEm: fb.serverTimestamp()
+  };
+  if (motivo) update.motivoBloqueio = motivo;
+  await fb.setDoc(ref('vendedores', id), update, { merge: true });
+  toast('Acesso do vendedor bloqueado.');
 }
 
 async function reactivateSellerAccess(id) {
   if (!isAdmin()) return toast('Somente admin reativa vendedores.');
-  try {
-    const vendedor = state.vendedores.find(v => v.id === id);
-    if (!vendedor) return toast('Selecione um vendedor valido.');
-    if (!window.confirm(`Reativar acesso de ${sellerName(vendedor)}?`)) return;
-    await fb.setDoc(ref('users', id), {
-      bloqueado: false,
-      status: 'ativo',
-      motivoBloqueio: '',
-      reativadoEm: fb.serverTimestamp(),
-      reativadoPor: currentUserId(),
-      reativadoPorEmail: currentUserEmail(),
-      atualizadoEm: fb.serverTimestamp()
-    }, { merge: true });
-    toast('Acesso do vendedor reativado.');
-  } catch (err) {
-    console.error('Erro ao reativar vendedor:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao reativar vendedor.'));
-  }
+  const vendedor = state.vendedores.find(v => v.id === id);
+  if (!vendedor) return toast('Selecione um vendedor valido.');
+  if (!window.confirm(`Reativar acesso de ${sellerName(vendedor)}?`)) return;
+  await fb.setDoc(ref('vendedores', id), {
+    status: 'ativo',
+    motivoBloqueio: '',
+    reativadoEm: fb.serverTimestamp(),
+    reativadoPor: currentUserEmail(),
+    atualizadoEm: fb.serverTimestamp()
+  }, { merge: true });
+  toast('Acesso do vendedor reativado.');
 }
 
 async function changeOrderStatus(id, status) {
   if (!isAdmin()) return toast('Somente admin altera status.');
-  try {
-    const pedido = state.pedidos.find(p => p.id === id);
-    if (!pedido) return;
-    const allowed = { pendente: ['aprovado', 'rejeitado'] };
-    if (!allowed[pedido.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[pedido.status] || pedido.status} → ${STATUS[status] || status}.`);
-    const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(pedido.historico || []), statusHistory(status)] };
-    if (status === 'aprovado') {
-      update.aprovadoEm = fb.serverTimestamp();
-      update.aprovadoPor = currentUserId();
-      update.aprovadoPorEmail = currentUserEmail();
-      await baixarEstoqueDoPedido(pedido);
-      update.estoqueBaixado = true;
-    }
-    if (status === 'rejeitado') {
-      update.rejeitadoEm = fb.serverTimestamp();
-      update.rejeitadoPor = currentUserId();
-      update.rejeitadoPorEmail = currentUserEmail();
-    }
-    if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
-    if (status === 'cancelado') update.canceladoEm = fb.serverTimestamp();
-    await fb.updateDoc(ref('pedidos', id), update);
-    toast(`Pedido ${STATUS[status].toLowerCase()}.`);
-  } catch (err) {
-    console.error('Erro ao alterar status do pedido:', err);
-    toast(friendlyFirestoreError(err, 'Erro ao alterar status do pedido.'));
-  }
+  const pedido = state.pedidos.find(p => p.id === id);
+  if (!pedido) return;
+  const allowed = { pendente: ['aprovado', 'rejeitado'] };
+  if (!allowed[pedido.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[pedido.status] || pedido.status} → ${STATUS[status] || status}.`);
+  const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(pedido.historico || []), statusHistory(status)] };
+  if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(pedido); update.estoqueBaixado = true; }
+  if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
+  if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
+  if (status === 'cancelado') update.canceladoEm = fb.serverTimestamp();
+  await fb.updateDoc(ref('pedidos', id), update);
+  toast(`Pedido ${STATUS[status].toLowerCase()}.`);
 }
 
 async function baixarEstoqueDoPedido(pedido) {
@@ -916,26 +852,17 @@ async function onAuth(user) {
   if (!user) { showLogin(); return; }
   hideProtectedUi();
   try {
-    const uid = String(user.uid || '').trim();
     const authEmail = String(user.email || '').trim().toLowerCase();
-    const snap = uid ? await fb.getDoc(ref('users', uid)) : null;
-    if (!snap?.exists()) {
-      console.error('Usuario autenticado sem perfil em users:', { uid, email: authEmail });
-      await fb.signOut(auth);
-      showLogin('Usuário sem perfil em users. Fale com o administrador.');
-      return;
-    }
-    const profile = { id: uid, uid, ...snap.data(), email: snap.data().email || authEmail };
+    const isAdminEmail = ADMIN_EMAILS.includes(authEmail);
+    const snap = isAdminEmail ? null : await fb.getDoc(ref('vendedores', authEmail));
+    if (!isAdminEmail && !snap.exists()) { await fb.signOut(auth); showLogin('Seu cadastro de vendedor não foi encontrado. Fale com o administrador.'); return; }
+    const profile = isAdminEmail
+      ? { id: authEmail, email: authEmail, nome: user.email, role: 'admin', status: 'ativo' }
+      : { id: authEmail, ...snap.data(), email: authEmail, role: 'vendedor' };
     state.user = user;
     state.profile = profile;
-    state.role = roleOf({ ...profile, email: profile.email || user.email });
-    if (!state.role) {
-      console.error('Perfil em users sem role valida:', { uid, email: authEmail, profile });
-      await fb.signOut(auth);
-      showLogin('Usuário sem perfil válido em users. Fale com o administrador.');
-      return;
-    }
-    if (profile.bloqueado === true) { showBlockedAccess(); return; }
+    state.role = roleOf({ ...profile, email: profile.email || user.email }) || 'vendedor';
+    if (sellerAccessBlocked(profile) || profile.bloqueado) { showBlockedAccess(); return; }
     state.page = isAdmin() ? 'pedidos' : 'carteira';
     $('#auth').classList.add('hidden');
     $('#app').classList.remove('hidden');

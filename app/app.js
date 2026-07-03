@@ -295,9 +295,9 @@ function renderAdminPedidos() {
       : state.pedidos.filter(p => p.arquivado !== true);
   const list = state.pedidoFiltro === 'todos' ? byArchive : byArchive.filter(p => p.status === state.pedidoFiltro);
   return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.') +
-    `<div class="grid four">${stat('Pendentes', byArchive.filter(p => p.status === 'pendente').length, 'gold')}${stat('Aprovados', byArchive.filter(p => p.status === 'aprovado').length)}${stat('Faturados', byArchive.filter(p => p.status === 'faturado').length)}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
-    `<div class="filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}</div>` +
-    `<div class="filters">${statuses.map(s => `<button type="button" class="btn small ${state.pedidoFiltro === s ? 'primary' : ''}" data-filter-ped="${s}">${s === 'todos' ? 'Todos' : STATUS[s]}</button>`).join('')}</div>` + orderList(list);
+    `<div class="grid four orders-summary">${stat('Pendentes', byArchive.filter(p => p.status === 'pendente').length, 'gold')}${stat('Aprovados', byArchive.filter(p => p.status === 'aprovado').length)}${stat('Faturados', byArchive.filter(p => p.status === 'faturado').length)}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
+    `<div class="filters orders-filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}</div>` +
+    `<div class="filters orders-filters">${statuses.map(s => `<button type="button" class="btn small ${state.pedidoFiltro === s ? 'primary' : ''}" data-filter-ped="${s}">${s === 'todos' ? 'Todos os status' : STATUS[s]}</button>`).join('')}</div>` + orderList(list);
 }
 
 function renderAdminClientes() {
@@ -459,12 +459,14 @@ function orderList(list) {
 }
 
 function orderCard(p) {
+  const archived = p.arquivado === true;
   const actions = [`<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`];
   if (isAdmin() && p.status === 'pendente') actions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button>`);
   if (isAdmin() && p.status === 'aprovado') actions.push(`<button type="button" class="btn green small" data-invoice="${p.id}">Faturar</button>`);
-  if (isAdmin() && p.arquivado !== true) actions.push(`<button type="button" class="btn small" data-archive="${p.id}">Arquivar</button>`);
-  const itens = (p.itens || []).map(item => `<div class="row-sub">${escapeHtml(item.codigo || '')} · ${escapeHtml(item.nome || '')} · ${escapeHtml(item.marca || '')} · ${item.qty}x · desc. ${item.descontoPct || 0}% · ${money(item.subtotal)}</div>`).join('');
-  return `<article class="row-card"><div class="row-top"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span></div>${itens}<div class="row-top" style="margin-top:10px"><strong>${money(p.total || 0)}</strong><div class="actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
+  if (isAdmin() && !archived) actions.push(`<button type="button" class="btn small" data-archive="${p.id}">Arquivar</button>`);
+  const archiveBadge = archived ? '<span class="badge arquivado">ARQUIVADO</span>' : '';
+  const itens = (p.itens || []).map(item => `<div class="row-sub order-item">${escapeHtml(item.codigo || '')} · ${escapeHtml(item.nome || '')} · ${escapeHtml(item.marca || '')} · ${item.qty}x · desc. ${item.descontoPct || 0}% · ${money(item.subtotal)}</div>`).join('');
+  return `<article class="row-card order-card ${archived ? 'archived' : ''}"><div class="row-top order-head"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><div class="order-badges"><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span>${archiveBadge}</div></div>${itens}<div class="row-top order-total"><strong>${money(p.total || 0)}</strong><div class="actions order-actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub order-note">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
 }
 
 function bindPageEvents() {

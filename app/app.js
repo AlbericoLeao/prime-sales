@@ -286,18 +286,28 @@ function renderPage() {
 }
 
 function renderAdminPedidos() {
-  const statuses = ['todos', 'pendente', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
   const arquivoFilters = [['ativos', 'Ativos'], ['arquivados', 'Arquivados'], ['todos', 'Todos']];
+  const summaryFilters = [
+    ['pendente', 'Pendentes', byStatus => byStatus.pendente, 'gold'],
+    ['aprovado', 'Aprovados', byStatus => byStatus.aprovado, ''],
+    ['faturado', 'Faturados', byStatus => byStatus.faturado, '']
+  ];
   const byArchive = state.pedidoArquivoFiltro === 'arquivados'
     ? state.pedidos.filter(p => p.arquivado === true)
     : state.pedidoArquivoFiltro === 'todos'
       ? state.pedidos
       : state.pedidos.filter(p => p.arquivado !== true);
   const list = state.pedidoFiltro === 'todos' ? byArchive : byArchive.filter(p => p.status === state.pedidoFiltro);
+  const byStatus = {
+    pendente: byArchive.filter(p => p.status === 'pendente').length,
+    aprovado: byArchive.filter(p => p.status === 'aprovado').length,
+    faturado: byArchive.filter(p => p.status === 'faturado').length
+  };
+  const statusSummary = summaryFilters.map(([status, label, value, cls]) => `<button type="button" class="stat stat-filter ${cls} ${state.pedidoFiltro === status ? 'active' : ''}" data-filter-ped="${status}" aria-pressed="${state.pedidoFiltro === status}"><small>${label}</small><strong>${value(byStatus)}</strong></button>`).join('');
+  const clearStatusFilter = state.pedidoFiltro === 'todos' ? '' : '<button type="button" class="btn small subtle" data-filter-ped="todos">Limpar filtro</button>';
   return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.') +
-    `<div class="grid four orders-summary">${stat('Pendentes', byArchive.filter(p => p.status === 'pendente').length, 'gold')}${stat('Aprovados', byArchive.filter(p => p.status === 'aprovado').length)}${stat('Faturados', byArchive.filter(p => p.status === 'faturado').length)}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
-    `<div class="filters orders-filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}</div>` +
-    `<div class="filters orders-filters">${statuses.map(s => `<button type="button" class="btn small ${state.pedidoFiltro === s ? 'primary' : ''}" data-filter-ped="${s}">${s === 'todos' ? 'Todos os status' : STATUS[s]}</button>`).join('')}</div>` + orderList(list);
+    `<div class="grid four orders-summary">${statusSummary}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
+    `<div class="filters orders-filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}${clearStatusFilter}</div>` + orderList(list);
 }
 
 function renderAdminClientes() {

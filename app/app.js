@@ -16,6 +16,7 @@ const state = {
   pedidoClienteId: '',
   pedidoObs: '',
   pedidoFiltro: 'todos',
+  pedidoArquivoFiltro: 'ativos',
   clienteFiltro: '',
   catalogoBusca: '',
   adminProdutoBusca: '',
@@ -102,6 +103,7 @@ function resetSessionState() {
   state.pedidoClienteId = '';
   state.pedidoObs = '';
   state.pedidoFiltro = 'todos';
+  state.pedidoArquivoFiltro = 'ativos';
   state.clienteFiltro = '';
   state.catalogoBusca = '';
   state.adminProdutoBusca = '';
@@ -285,9 +287,16 @@ function renderPage() {
 
 function renderAdminPedidos() {
   const statuses = ['todos', 'pendente', 'aprovado', 'faturado', 'rejeitado', 'cancelado'];
-  const list = state.pedidoFiltro === 'todos' ? state.pedidos : state.pedidos.filter(p => p.status === state.pedidoFiltro);
+  const arquivoFilters = [['ativos', 'Ativos'], ['arquivados', 'Arquivados'], ['todos', 'Todos']];
+  const byArchive = state.pedidoArquivoFiltro === 'arquivados'
+    ? state.pedidos.filter(p => p.arquivado === true)
+    : state.pedidoArquivoFiltro === 'todos'
+      ? state.pedidos
+      : state.pedidos.filter(p => p.arquivado !== true);
+  const list = state.pedidoFiltro === 'todos' ? byArchive : byArchive.filter(p => p.status === state.pedidoFiltro);
   return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.') +
-    `<div class="grid four">${stat('Pendentes', state.pedidos.filter(p => p.status === 'pendente').length, 'gold')}${stat('Aprovados', state.pedidos.filter(p => p.status === 'aprovado').length)}${stat('Faturados', state.pedidos.filter(p => p.status === 'faturado').length)}${stat('Total faturado', money(state.pedidos.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
+    `<div class="grid four">${stat('Pendentes', byArchive.filter(p => p.status === 'pendente').length, 'gold')}${stat('Aprovados', byArchive.filter(p => p.status === 'aprovado').length)}${stat('Faturados', byArchive.filter(p => p.status === 'faturado').length)}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
+    `<div class="filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}</div>` +
     `<div class="filters">${statuses.map(s => `<button type="button" class="btn small ${state.pedidoFiltro === s ? 'primary' : ''}" data-filter-ped="${s}">${s === 'todos' ? 'Todos' : STATUS[s]}</button>`).join('')}</div>` + orderList(list);
 }
 
@@ -453,6 +462,7 @@ function orderCard(p) {
   const actions = [`<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`];
   if (isAdmin() && p.status === 'pendente') actions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button>`);
   if (isAdmin() && p.status === 'aprovado') actions.push(`<button type="button" class="btn green small" data-invoice="${p.id}">Faturar</button>`);
+  if (isAdmin() && p.arquivado !== true) actions.push(`<button type="button" class="btn small" data-archive="${p.id}">Arquivar</button>`);
   const itens = (p.itens || []).map(item => `<div class="row-sub">${escapeHtml(item.codigo || '')} · ${escapeHtml(item.nome || '')} · ${escapeHtml(item.marca || '')} · ${item.qty}x · desc. ${item.descontoPct || 0}% · ${money(item.subtotal)}</div>`).join('');
   return `<article class="row-card"><div class="row-top"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span></div>${itens}<div class="row-top" style="margin-top:10px"><strong>${money(p.total || 0)}</strong><div class="actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
 }
@@ -460,6 +470,7 @@ function orderCard(p) {
 function bindPageEvents() {
   $$('[data-page-jump]').forEach(btn => btn.onclick = () => setPage(btn.dataset.pageJump));
   $$('[data-filter-ped]').forEach(btn => btn.onclick = () => { state.pedidoFiltro = btn.dataset.filterPed; renderPage(); });
+  $$('[data-filter-archive]').forEach(btn => btn.onclick = () => { state.pedidoArquivoFiltro = btn.dataset.filterArchive; renderPage(); });
   bindStartOrderButtons();
   bindQtyButtons();
   $('#pedido-cliente')?.addEventListener('change', e => { state.pedidoClienteId = e.target.value; });
@@ -498,6 +509,7 @@ function bindPageEvents() {
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
+  $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
   $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
   $$('[data-edit-product]').forEach(btn => btn.onclick = () => { state.productEditId = btn.dataset.editProduct; renderPage(); });
   $('[data-new-product]')?.addEventListener('click', () => { state.productEditId = ''; renderPage(); });
@@ -810,6 +822,25 @@ async function changeOrderStatus(id, status) {
   if (status === 'cancelado') update.canceladoEm = fb.serverTimestamp();
   await fb.updateDoc(ref('pedidos', id), update);
   toast(`Pedido ${STATUS[status].toLowerCase()}.`);
+}
+
+async function archiveOrder(id) {
+  if (!isAdmin()) return toast('Somente admin arquiva pedidos.');
+  try {
+    const pedido = state.pedidos.find(p => p.id === id);
+    if (!pedido) return;
+    await fb.updateDoc(ref('pedidos', id), {
+      arquivado: true,
+      arquivadoEm: fb.serverTimestamp(),
+      arquivadoPor: currentUserEmail(),
+      arquivadoPorEmail: currentUserEmail(),
+      atualizadoEm: fb.serverTimestamp()
+    });
+    toast('Pedido arquivado.');
+  } catch (err) {
+    console.error(err);
+    toast(`Erro ao arquivar pedido: ${err.message}`);
+  }
 }
 
 async function baixarEstoqueDoPedido(pedido) {

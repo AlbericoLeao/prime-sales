@@ -452,6 +452,7 @@ function orderList(list) {
 function orderCard(p) {
   const actions = [`<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`];
   if (isAdmin() && p.status === 'pendente') actions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button>`);
+  if (isAdmin() && p.status === 'aprovado') actions.push(`<button type="button" class="btn green small" data-invoice="${p.id}">Faturar</button>`);
   const itens = (p.itens || []).map(item => `<div class="row-sub">${escapeHtml(item.codigo || '')} · ${escapeHtml(item.nome || '')} · ${escapeHtml(item.marca || '')} · ${item.qty}x · desc. ${item.descontoPct || 0}% · ${money(item.subtotal)}</div>`).join('');
   return `<article class="row-card"><div class="row-top"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span></div>${itens}<div class="row-top" style="margin-top:10px"><strong>${money(p.total || 0)}</strong><div class="actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
 }
@@ -496,6 +497,7 @@ function bindPageEvents() {
   $('[data-send-order]')?.addEventListener('click', e => sendOrder(e.currentTarget));
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
+  $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
   $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
   $$('[data-edit-product]').forEach(btn => btn.onclick = () => { state.productEditId = btn.dataset.editProduct; renderPage(); });
   $('[data-new-product]')?.addEventListener('click', () => { state.productEditId = ''; renderPage(); });
@@ -795,12 +797,16 @@ async function changeOrderStatus(id, status) {
   if (!isAdmin()) return toast('Somente admin altera status.');
   const pedido = state.pedidos.find(p => p.id === id);
   if (!pedido) return;
-  const allowed = { pendente: ['aprovado', 'rejeitado'] };
+  const allowed = { pendente: ['aprovado', 'rejeitado'], aprovado: ['faturado'] };
   if (!allowed[pedido.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[pedido.status] || pedido.status} → ${STATUS[status] || status}.`);
   const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(pedido.historico || []), statusHistory(status)] };
   if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(pedido); update.estoqueBaixado = true; }
   if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
-  if (status === 'faturado') update.faturadoEm = fb.serverTimestamp();
+  if (status === 'faturado') {
+    update.faturadoEm = fb.serverTimestamp();
+    update.faturadoPor = currentUserEmail();
+    update.faturadoPorEmail = currentUserEmail();
+  }
   if (status === 'cancelado') update.canceladoEm = fb.serverTimestamp();
   await fb.updateDoc(ref('pedidos', id), update);
   toast(`Pedido ${STATUS[status].toLowerCase()}.`);

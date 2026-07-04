@@ -305,19 +305,19 @@ function renderAdminPedidos() {
   };
   const statusSummary = summaryFilters.map(([status, label, value, cls]) => `<button type="button" class="stat stat-filter ${cls} ${state.pedidoFiltro === status ? 'active' : ''}" data-filter-ped="${status}" aria-pressed="${state.pedidoFiltro === status}"><small>${label}</small><strong>${value(byStatus)}</strong></button>`).join('');
   const clearStatusFilter = state.pedidoFiltro === 'todos' ? '' : '<button type="button" class="btn small subtle" data-filter-ped="todos">Limpar filtro</button>';
-  return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.') +
-    `<div class="grid four orders-summary">${statusSummary}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
-    `<div class="filters orders-filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}${clearStatusFilter}</div>` + orderList(list);
+  return `<div class="admin-page admin-orders">${head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.')}` +
+    `<div class="grid four orders-summary">${statusSummary}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)), 'total-billed')}</div>` +
+    `<div class="filters orders-filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}${clearStatusFilter}</div>` + orderList(list) + '</div>';
 }
 
 function renderAdminClientes() {
-  return head('Clientes', 'Cadastre clientes e atribua a um vendedor ativo.') + clienteForm() +
-    `<section class="card"><label>Buscar cliente<input id="admin-client-search" placeholder="Nome, CNPJ, telefone, cidade, estado ou vendedor" value="${escapeHtml(state.adminClienteBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-client-search>Limpar busca</button></div></section>` +
-    `<div id="admin-client-list">${clientesList(filteredAdminClients(), true)}</div>`;
+  return `<div class="admin-page admin-directory">${head('Clientes', 'Cadastre clientes e atribua a um vendedor ativo.')}<div class="admin-workspace">` + clienteForm() +
+    `<div><section class="card admin-search"><label>Buscar cliente<input id="admin-client-search" placeholder="Nome, CNPJ, telefone, cidade, estado ou vendedor" value="${escapeHtml(state.adminClienteBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-client-search>Limpar busca</button></div></section>` +
+    `<div id="admin-client-list">${clientesList(filteredAdminClients(), true)}</div></div></div></div>`;
 }
 
 function renderAdminVendedores() {
-  return head('Vendedores', 'Cadastre, edite, ative ou bloqueie vendedores.') + vendedorForm() + vendedoresList();
+  return `<div class="admin-page admin-directory">${head('Vendedores', 'Cadastre, edite, ative ou bloqueie vendedores.')}<div class="admin-workspace">` + vendedorForm() + `<div>${vendedoresList()}</div></div></div>`;
 }
 
 function renderAdminProdutos() {
@@ -352,7 +352,7 @@ function vendedorForm() {
 
 function vendedoresList() {
   if (!state.vendedores.length) return '<div class="empty">Nenhum vendedor cadastrado.</div>';
-  return `<div class="list">${state.vendedores.map(v => {
+  return `<div class="list admin-list seller-list">${state.vendedores.map(v => {
     const blocked = sellerBlocked(v);
     const status = blocked ? '<span class="badge rejeitado">Bloqueado</span>' : '<span class="badge faturado">Ativo</span>';
     const accessAction = blocked
@@ -383,7 +383,7 @@ function renderMeusPedidos() {
 
 function clientesList(list, admin) {
   if (!list.length) return '<div class="empty">Nenhum cliente encontrado.</div>';
-  return `<div class="list">${list.map(c => {
+  return `<div class="list ${admin ? 'admin-list client-list' : ''}">${list.map(c => {
     const sellerStatus = clientSellerStatus(c);
     return `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(c.nome || c.razaoSocial || 'Cliente')}</div><div class="row-sub">${escapeHtml(c.doc || c.cnpj || '')} · ${escapeHtml(c.tel || c.telefone || '')}</div><div class="row-sub">${escapeHtml(c.cidade || '')} ${escapeHtml(c.estado || '')}</div></div><span class="badge ${c.status === 'inativo' ? 'rejeitado' : 'faturado'}">${escapeHtml(c.status || 'ativo')}</span></div>${admin ? `<div class="row-sub"><span class="badge ${sellerStatus.badge}">${escapeHtml(sellerStatus.label)}</span> ${escapeHtml(sellerStatus.detail)}</div>` : ''}${admin ? `<div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-edit-client="${c.id}">Editar</button></div>` : `<div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-start-order="${c.id}">Iniciar Pedido</button></div>`}</article>`;
   }).join('')}</div>`;
@@ -391,7 +391,7 @@ function clientesList(list, admin) {
 
 function productList(list, admin) {
   if (!list.length) return `<div class="empty">${admin ? 'Nenhum produto encontrado.' : 'Nenhum produto ativo encontrado.'}</div>`;
-  return `<div class="list">${list.map(p => productCard(p, admin)).join('')}</div>`;
+  return `<div class="list ${admin ? 'admin-list product-list-admin' : ''}">${list.map(p => productCard(p, admin)).join('')}</div>`;
 }
 
 function filteredAdminProducts() {
@@ -465,7 +465,7 @@ function clienteForm() {
 
 function orderList(list) {
   if (!list.length) return '<div class="empty">Nenhum pedido encontrado.</div>';
-  return `<div class="list">${list.map(orderCard).join('')}</div>`;
+  return `<div class="orders-table-head"><span>Pedido / Cliente</span><span>Vendedor / Data</span><span>Status</span><span>Valor</span><span>Ações</span></div><div class="list orders-list">${list.map(orderCard).join('')}</div>`;
 }
 
 function orderCard(p) {

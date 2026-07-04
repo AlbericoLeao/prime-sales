@@ -17,6 +17,7 @@ const state = {
   pedidoObs: '',
   pedidoFiltro: 'todos',
   pedidoArquivoFiltro: 'ativos',
+  adminPedidoBusca: '',
   clienteFiltro: '',
   catalogoBusca: '',
   adminProdutoBusca: '',
@@ -104,6 +105,7 @@ function resetSessionState() {
   state.pedidoObs = '';
   state.pedidoFiltro = 'todos';
   state.pedidoArquivoFiltro = 'ativos';
+  state.adminPedidoBusca = '';
   state.clienteFiltro = '';
   state.catalogoBusca = '';
   state.adminProdutoBusca = '';
@@ -303,21 +305,59 @@ function renderAdminPedidos() {
     aprovado: byArchive.filter(p => p.status === 'aprovado').length,
     faturado: byArchive.filter(p => p.status === 'faturado').length
   };
+  const term = normalizeSearch(state.adminPedidoBusca);
+  const visibleList = !term ? list : list.filter(p => [
+    p.numero,
+    p.id,
+    p.cliente?.nome,
+    p.clienteNome,
+    p.cliente?.cidade,
+    p.clienteCidade,
+    p.vendedorNome,
+    p.vendedorEmail,
+    p.status,
+    p.observacoes,
+    ...(p.itens || []).flatMap(item => [item.codigo, item.nome, item.marca])
+  ].some(value => normalizeSearch(value).includes(term)));
   const statusSummary = summaryFilters.map(([status, label, value, cls]) => `<button type="button" class="stat stat-filter ${cls} ${state.pedidoFiltro === status ? 'active' : ''}" data-filter-ped="${status}" aria-pressed="${state.pedidoFiltro === status}"><small>${label}</small><strong>${value(byStatus)}</strong></button>`).join('');
   const clearStatusFilter = state.pedidoFiltro === 'todos' ? '' : '<button type="button" class="btn small subtle" data-filter-ped="todos">Limpar filtro</button>';
-  return head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.') +
-    `<div class="grid four orders-summary">${statusSummary}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)))}</div>` +
-    `<div class="filters orders-filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}${clearStatusFilter}</div>` + orderList(list);
+  return `<div class="admin-page admin-orders">${head('Pedidos', 'Aprove, rejeite, fature e gere PDF dos pedidos enviados.')}` +
+    `<div class="grid four orders-summary">${statusSummary}${stat('Total faturado', money(byArchive.filter(p => p.status === 'faturado').reduce((s, p) => s + Number(p.total || 0), 0)), 'total-billed')}</div>` +
+    `<div class="orders-toolbar"><div class="filters orders-filters">${arquivoFilters.map(([key, label]) => `<button type="button" class="btn small ${state.pedidoArquivoFiltro === key ? 'primary' : ''}" data-filter-archive="${key}">${label}</button>`).join('')}${clearStatusFilter}</div><label class="admin-inline-search">Buscar pedido<input id="admin-order-search" placeholder="Cliente, pedido, vendedor, cidade ou produto" value="${escapeHtml(state.adminPedidoBusca)}"></label></div><div id="admin-order-list">` + orderList(visibleList) + '</div></div>';
+}
+
+function filteredAdminOrders() {
+  const byArchive = state.pedidoArquivoFiltro === 'arquivados'
+    ? state.pedidos.filter(p => p.arquivado === true)
+    : state.pedidoArquivoFiltro === 'todos'
+      ? state.pedidos
+      : state.pedidos.filter(p => p.arquivado !== true);
+  const list = state.pedidoFiltro === 'todos' ? byArchive : byArchive.filter(p => p.status === state.pedidoFiltro);
+  const term = normalizeSearch(state.adminPedidoBusca);
+  if (!term) return list;
+  return list.filter(p => [
+    p.numero,
+    p.id,
+    p.cliente?.nome,
+    p.clienteNome,
+    p.cliente?.cidade,
+    p.clienteCidade,
+    p.vendedorNome,
+    p.vendedorEmail,
+    p.status,
+    p.observacoes,
+    ...(p.itens || []).flatMap(item => [item.codigo, item.nome, item.marca])
+  ].some(value => normalizeSearch(value).includes(term)));
 }
 
 function renderAdminClientes() {
-  return head('Clientes', 'Cadastre clientes e atribua a um vendedor ativo.') + clienteForm() +
-    `<section class="card"><label>Buscar cliente<input id="admin-client-search" placeholder="Nome, CNPJ, telefone, cidade, estado ou vendedor" value="${escapeHtml(state.adminClienteBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-client-search>Limpar busca</button></div></section>` +
-    `<div id="admin-client-list">${clientesList(filteredAdminClients(), true)}</div>`;
+  return `<div class="admin-page admin-directory">${head('Clientes', 'Cadastre clientes e atribua a um vendedor ativo.')}<div class="admin-workspace">` + clienteForm() +
+    `<div><section class="card admin-search"><label>Buscar cliente<input id="admin-client-search" placeholder="Nome, CNPJ, telefone, cidade, estado ou vendedor" value="${escapeHtml(state.adminClienteBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-client-search>Limpar busca</button></div></section>` +
+    `<div id="admin-client-list">${clientesList(filteredAdminClients(), true)}</div></div></div></div>`;
 }
 
 function renderAdminVendedores() {
-  return head('Vendedores', 'Cadastre, edite, ative ou bloqueie vendedores.') + vendedorForm() + vendedoresList();
+  return `<div class="admin-page admin-directory">${head('Vendedores', 'Cadastre, edite, ative ou bloqueie vendedores.')}<div class="admin-workspace">` + vendedorForm() + `<div>${vendedoresList()}</div></div></div>`;
 }
 
 function renderAdminProdutos() {
@@ -352,7 +392,7 @@ function vendedorForm() {
 
 function vendedoresList() {
   if (!state.vendedores.length) return '<div class="empty">Nenhum vendedor cadastrado.</div>';
-  return `<div class="list">${state.vendedores.map(v => {
+  return `<div class="list admin-list seller-list">${state.vendedores.map(v => {
     const blocked = sellerBlocked(v);
     const status = blocked ? '<span class="badge rejeitado">Bloqueado</span>' : '<span class="badge faturado">Ativo</span>';
     const accessAction = blocked
@@ -383,7 +423,7 @@ function renderMeusPedidos() {
 
 function clientesList(list, admin) {
   if (!list.length) return '<div class="empty">Nenhum cliente encontrado.</div>';
-  return `<div class="list">${list.map(c => {
+  return `<div class="list ${admin ? 'admin-list client-list' : ''}">${list.map(c => {
     const sellerStatus = clientSellerStatus(c);
     return `<article class="row-card"><div class="row-top"><div><div class="row-title">${escapeHtml(c.nome || c.razaoSocial || 'Cliente')}</div><div class="row-sub">${escapeHtml(c.doc || c.cnpj || '')} · ${escapeHtml(c.tel || c.telefone || '')}</div><div class="row-sub">${escapeHtml(c.cidade || '')} ${escapeHtml(c.estado || '')}</div></div><span class="badge ${c.status === 'inativo' ? 'rejeitado' : 'faturado'}">${escapeHtml(c.status || 'ativo')}</span></div>${admin ? `<div class="row-sub"><span class="badge ${sellerStatus.badge}">${escapeHtml(sellerStatus.label)}</span> ${escapeHtml(sellerStatus.detail)}</div>` : ''}${admin ? `<div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-edit-client="${c.id}">Editar</button></div>` : `<div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-start-order="${c.id}">Iniciar Pedido</button></div>`}</article>`;
   }).join('')}</div>`;
@@ -391,7 +431,7 @@ function clientesList(list, admin) {
 
 function productList(list, admin) {
   if (!list.length) return `<div class="empty">${admin ? 'Nenhum produto encontrado.' : 'Nenhum produto ativo encontrado.'}</div>`;
-  return `<div class="list">${list.map(p => productCard(p, admin)).join('')}</div>`;
+  return `<div class="list ${admin ? 'admin-list product-list-admin' : ''}">${list.map(p => productCard(p, admin)).join('')}</div>`;
 }
 
 function filteredAdminProducts() {
@@ -465,7 +505,7 @@ function clienteForm() {
 
 function orderList(list) {
   if (!list.length) return '<div class="empty">Nenhum pedido encontrado.</div>';
-  return `<div class="list">${list.map(orderCard).join('')}</div>`;
+  return `<div class="orders-table-head"><span>Pedido / Cliente</span><span>Vendedor / Data</span><span>Status</span><span>Valor</span><span>Ações</span></div><div class="list orders-list">${list.map(orderPanelCard).join('')}</div>`;
 }
 
 function orderCard(p) {
@@ -479,6 +519,28 @@ function orderCard(p) {
   return `<article class="row-card order-card ${archived ? 'archived' : ''}"><div class="row-top order-head"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} · ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} · ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><div class="order-badges"><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span>${archiveBadge}</div></div>${itens}<div class="row-top order-total"><strong>${money(p.total || 0)}</strong><div class="actions order-actions">${actions.join('')}</div></div>${p.observacoes ? `<div class="row-sub order-note">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
 }
 
+function orderPanelCard(p) {
+  const archived = p.arquivado === true;
+  const archiveBadge = archived ? '<span class="badge arquivado">ARQUIVADO</span>' : '';
+  const itens = (p.itens || []).map(item => `<div class="row-sub order-item">${escapeHtml(item.codigo || '')} - ${escapeHtml(item.nome || '')} - ${escapeHtml(item.marca || '')} - ${item.qty}x - desc. ${item.descontoPct || 0}% - ${money(item.subtotal)}</div>`).join('');
+  const allActions = [`<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`];
+  if (isAdmin() && p.status === 'pendente') allActions.push(`<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button><button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button>`);
+  if (isAdmin() && p.status === 'aprovado') allActions.push(`<button type="button" class="btn green small" data-invoice="${p.id}">Faturar</button>`);
+  if (isAdmin() && !archived) allActions.push(`<button type="button" class="btn small" data-archive="${p.id}">Arquivar</button>`);
+
+  let primaryAction = `<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`;
+  if (isAdmin() && p.status === 'pendente') primaryAction = `<button type="button" class="btn green small" data-approve="${p.id}">Aprovar</button>`;
+  if (isAdmin() && p.status === 'aprovado') primaryAction = `<button type="button" class="btn green small" data-invoice="${p.id}">Faturar</button>`;
+  const secondaryActions = [
+    ...(p.status === 'pendente' || p.status === 'aprovado' ? [`<button type="button" class="btn small" data-pdf="${p.id}">PDF</button>`] : []),
+    ...(isAdmin() && p.status === 'pendente' ? [`<button type="button" class="btn red small" data-reject="${p.id}">Rejeitar</button>`] : []),
+    ...(isAdmin() && !archived ? [`<button type="button" class="btn small" data-archive="${p.id}">Arquivar</button>`] : [])
+  ].join('');
+  const actionMenu = secondaryActions ? `<details class="action-menu"><summary>Mais</summary><div>${secondaryActions}</div></details>` : '';
+
+  return `<article class="row-card order-card ${archived ? 'archived' : ''}"><div class="row-top order-head"><div><div class="row-title">#${escapeHtml(String(p.numero || p.id).slice(-8).toUpperCase())} - ${escapeHtml(p.cliente?.nome || p.clienteNome || 'Cliente')}</div><div class="row-sub">${escapeHtml(p.vendedorNome || '')} - ${formatDate(p.enviadoEm || p.criadoEm)}</div></div><div class="order-badges"><span class="badge ${p.status}">${STATUS[p.status] || p.status}</span>${archiveBadge}</div></div>${itens}<details class="order-details"><summary>Ver detalhes</summary>${itens || '<div class="row-sub order-item">Nenhum item informado.</div>'}${p.observacoes ? `<div class="row-sub order-note">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</details><div class="row-top order-total"><strong>${money(p.total || 0)}</strong><div class="actions order-actions mobile-order-actions">${allActions.join('')}</div><div class="actions order-actions desktop-order-actions">${primaryAction}${actionMenu}</div></div>${p.observacoes ? `<div class="row-sub order-note mobile-order-note">Obs.: ${escapeHtml(p.observacoes)}</div>` : ''}</article>`;
+}
+
 function bindPageEvents() {
   $$('[data-page-jump]').forEach(btn => btn.onclick = () => setPage(btn.dataset.pageJump));
   $$('[data-filter-ped]').forEach(btn => btn.onclick = () => { state.pedidoFiltro = btn.dataset.filterPed; renderPage(); });
@@ -487,6 +549,10 @@ function bindPageEvents() {
   bindQtyButtons();
   $('#pedido-cliente')?.addEventListener('change', e => { state.pedidoClienteId = e.target.value; });
   $('#pedido-obs')?.addEventListener('input', e => { state.pedidoObs = e.target.value; });
+  $('#admin-order-search')?.addEventListener('input', e => {
+    state.adminPedidoBusca = e.target.value;
+    renderAdminOrderList();
+  });
   $('#cliente-search')?.addEventListener('input', e => {
     state.clienteFiltro = e.target.value;
     renderClienteList();
@@ -536,6 +602,14 @@ function bindPageEvents() {
   $$('[data-reactivate-seller]').forEach(btn => btn.onclick = () => reactivateSellerAccess(btn.dataset.reactivateSeller));
 }
 
+function bindOrderButtons() {
+  $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
+  $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
+  $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
+  $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
+  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
+}
+
 function bindStartOrderButtons() {
   $$('[data-start-order]').forEach(btn => btn.onclick = () => {
     if (!ensureSellerAccess()) return;
@@ -556,6 +630,13 @@ function renderClienteList() {
   const list = ownClientes().filter(c => !term || (c.nome || c.razaoSocial || '').toLowerCase().includes(term) || (c.doc || c.cnpj || '').toLowerCase().includes(term));
   target.innerHTML = clientesList(list, false);
   bindStartOrderButtons();
+}
+
+function renderAdminOrderList() {
+  const target = $('#admin-order-list');
+  if (!target) return;
+  target.innerHTML = orderList(filteredAdminOrders());
+  bindOrderButtons();
 }
 
 function bindAdminProductButtons() {

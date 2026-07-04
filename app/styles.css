@@ -635,6 +635,14 @@ textarea:focus {
   display: none;
 }
 
+.orders-toolbar {
+  margin-bottom: 12px;
+}
+
+.admin-inline-search {
+  margin: 0 0 12px;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -764,6 +772,37 @@ textarea:focus {
 
 .order-details {
   display: none;
+}
+
+.desktop-order-actions {
+  display: none;
+}
+
+.action-menu {
+  position: relative;
+}
+
+.action-menu summary {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 7px 11px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.action-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.action-menu > div {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .product-card {
@@ -1100,11 +1139,35 @@ textarea:focus {
     box-shadow: var(--shadow-soft);
     overflow: visible;
     padding: 10px;
-    margin-bottom: 14px;
+    margin-bottom: 0;
   }
 
   .orders-filters .btn {
     min-width: 96px;
+  }
+
+  .orders-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+    gap: 12px;
+    align-items: start;
+    margin-bottom: 14px;
+  }
+
+  .admin-inline-search {
+    align-self: stretch;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-soft);
+    margin: 0;
+    padding: 10px;
+  }
+
+  .admin-inline-search input {
+    min-height: 34px;
+    border-radius: 8px;
+    padding: 8px 10px;
   }
 
   .orders-table-head {
@@ -1159,6 +1222,25 @@ textarea:focus {
     display: none;
   }
 
+  .order-details {
+    display: block;
+    grid-column: 1 / -1;
+    margin-top: -2px;
+  }
+
+  .order-details summary {
+    color: var(--blue);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 900;
+    width: max-content;
+  }
+
+  .order-details[open] {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+  }
+
   .order-total {
     display: contents;
   }
@@ -1173,6 +1255,15 @@ textarea:focus {
     grid-column: 5;
   }
 
+  .mobile-order-actions,
+  .mobile-order-note {
+    display: none;
+  }
+
+  .desktop-order-actions {
+    display: flex;
+  }
+
   .order-actions {
     gap: 6px;
     justify-content: flex-start;
@@ -1182,6 +1273,31 @@ textarea:focus {
     min-height: 32px;
     padding: 6px 9px;
     font-size: 11px;
+  }
+
+  .action-menu summary {
+    min-height: 32px;
+    border-radius: 8px;
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+
+  .action-menu[open] > div {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 12;
+    min-width: 130px;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .action-menu[open] > div .btn {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .order-note {

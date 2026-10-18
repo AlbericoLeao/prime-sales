@@ -22,8 +22,12 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Install test dependencies
         run: npm install --no-audit --no-fund
+      - name: Run server-side order validation unit tests
+        run: npm run test:functions
       - name: Run Firestore rules emulator tests
         run: npm run test:rules
+      - name: Install Cloud Functions dependencies
+        run: npm install --prefix functions --no-audit --no-fund

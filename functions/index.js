@@ -48,12 +48,14 @@ exports.createSeller = onCall({ region: 'us-central1', enforceAppCheck: false },
 
   const auth = getAuth();
   let userRecord;
+  let accountCreated = false;
   try {
     userRecord = await auth.getUserByEmail(email);
   } catch (error) {
     if (error.code !== 'auth/user-not-found') throw error;
     try {
       userRecord = await auth.createUser({ email, displayName: name, disabled: false });
+      accountCreated = true;
     } catch (createError) {
       if (createError.code === 'auth/email-already-exists') {
         userRecord = await auth.getUserByEmail(email);
@@ -82,14 +84,14 @@ exports.createSeller = onCall({ region: 'us-central1', enforceAppCheck: false },
       throw new HttpsError('already-exists', 'Já existe um cadastro de vendedor com este e-mail.');
     }
     // Roll back only an account created by this invocation; never delete a pre-existing account.
-    if (userRecord && userRecord.metadata && userRecord.metadata.creationTime === userRecord.metadata.lastSignInTime) {
-      // Do not automatically delete accounts: the user may have signed in concurrently.
+    if (accountCreated) {
+      try { await auth.deleteUser(userRecord.uid); } catch (rollbackError) { console.error('Could not roll back newly created seller Auth user', rollbackError); }
     }
     throw error;
   }
 
   const resetLink = await auth.generatePasswordResetLink(email);
-  return { ok: true, email, resetLink, accountAlreadyExisted: userRecord.metadata.creationTime !== userRecord.metadata.lastSignInTime };
+  return { ok: true, email, resetLink, accountAlreadyExisted: !accountCreated };
 });
 
 function moneyToCents(value) {

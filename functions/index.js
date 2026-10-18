@@ -205,8 +205,13 @@ exports.processOrder = onCall({ region: 'us-central1', enforceAppCheck: false },
         let legacySellerSnap = null;
         let legacyClientSnap = null;
         if (!isServerValidated) {
-          const legacySellerRef = db.collection('vendedores').doc(normalizedEmail(order.vendedorEmail));
-          const legacyClientRef = db.collection('clientes').doc(safeText(order.clienteId, 180));
+          const legacySellerEmail = normalizedEmail(order.vendedorEmail);
+          const legacyClientId = safeText(order.clienteId, 180);
+          if (!legacySellerEmail || !legacyClientId) {
+            throw new HttpsError('failed-precondition', 'O pedido legado não tem vendedor ou cliente válido. Revise o cadastro antes de aprovar.');
+          }
+          const legacySellerRef = db.collection('vendedores').doc(legacySellerEmail);
+          const legacyClientRef = db.collection('clientes').doc(legacyClientId);
           legacySellerSnap = await tx.get(legacySellerRef);
           legacyClientSnap = await tx.get(legacyClientRef);
           if (!legacySellerSnap.exists || !activeSellerData(legacySellerSnap.data())) {

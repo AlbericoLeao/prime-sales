@@ -763,7 +763,7 @@ async function saveSeller() {
 
   try {
     if (!id) {
-      const result = await callFunction('createSeller', { nome, email });
+      const result = await callFunction('createSeller', { nome, email, status: blocked ? 'bloqueado' : 'ativo' });
       state.sellerEditId = email;
       toast('Conta de vendedor criada. Envie o link de redefinição de senha ao titular.');
       if (result.resetLink) {

@@ -33,6 +33,7 @@ exports.createSeller = onCall({ region: 'us-central1', enforceAppCheck: false },
   const input = request.data || {};
   const name = safeText(input.nome, 160);
   const email = normalizedEmail(input.email);
+  const status = input.status === 'bloqueado' ? 'bloqueado' : 'ativo';
   if (!name || !email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new HttpsError('invalid-argument', 'Informe nome e e-mail válidos para o vendedor.');
   }
@@ -73,7 +74,7 @@ exports.createSeller = onCall({ region: 'us-central1', enforceAppCheck: false },
     await sellerRef.create({
       email,
       nome: name,
-      status: 'ativo',
+      status,
       authUid: userRecord.uid,
       criadoPor: adminEmail,
       criadoEm: Timestamp.now(),

@@ -18,13 +18,18 @@ service cloud.firestore {
     function activeSeller() {
       return signedIn()
         && exists(/databases/$(database)/documents/vendedores/$(email()))
-        && get(/databases/$(database)/documents/vendedores/$(email())).data.status == 'ativo'
+        && (
+          get(/databases/$(database)/documents/vendedores/$(email())).data.status == 'ativo'
+          || (
+            !('status' in get(/databases/$(database)/documents/vendedores/$(email())).data)
+            && get(/databases/$(database)/documents/vendedores/$(email())).data.ativo == true
+          )
+        )
         && get(/databases/$(database)/documents/vendedores/$(email())).data.bloqueado != true;
     }
 
     function activeProduct() {
-      return resource.data.ativo == true
-        || resource.data.status == 'ativo';
+      return resource.data.ativo == true;
     }
 
     function assignedClient(clienteId) {
@@ -51,6 +56,7 @@ service cloud.firestore {
         && request.resource.data.status == 'pendente'
         && request.resource.data.clienteId is string
         && request.resource.data.itens is list
+        && request.resource.data.itens.size() > 0
         && request.resource.data.total is number
         && request.resource.data.total >= 0
         && assignedClient(request.resource.data.clienteId);

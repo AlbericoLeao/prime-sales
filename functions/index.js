@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { toCents, positiveQuantity } = require('./order-domain');
 
@@ -25,6 +26,71 @@ function requireAdmin(request) {
   }
   return email;
 }
+
+
+exports.createSeller = onCall({ region: 'us-central1', enforceAppCheck: false }, async (request) => {
+  const adminEmail = requireAdmin(request);
+  const input = request.data || {};
+  const name = safeText(input.nome, 160);
+  const email = normalizedEmail(input.email);
+  if (!name || !email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new HttpsError('invalid-argument', 'Informe nome e e-mail válidos para o vendedor.');
+  }
+  if (email === ADMIN_EMAIL) {
+    throw new HttpsError('invalid-argument', 'A conta administrativa não pode ser cadastrada como vendedor.');
+  }
+
+  const sellerRef = db.collection('vendedores').doc(email);
+  const existingProfile = await sellerRef.get();
+  if (existingProfile.exists) {
+    throw new HttpsError('already-exists', 'Já existe um cadastro de vendedor com este e-mail. Edite o cadastro existente.');
+  }
+
+  const auth = getAuth();
+  let userRecord;
+  try {
+    userRecord = await auth.getUserByEmail(email);
+  } catch (error) {
+    if (error.code !== 'auth/user-not-found') throw error;
+    try {
+      userRecord = await auth.createUser({ email, displayName: name, disabled: false });
+    } catch (createError) {
+      if (createError.code === 'auth/email-already-exists') {
+        userRecord = await auth.getUserByEmail(email);
+      } else {
+        throw createError;
+      }
+    }
+  }
+
+  if (userRecord.disabled) {
+    throw new HttpsError('failed-precondition', 'Esta conta Firebase está desativada. Reative-a no Firebase Authentication antes de cadastrar o vendedor.');
+  }
+
+  try {
+    await sellerRef.create({
+      email,
+      nome: name,
+      status: 'ativo',
+      authUid: userRecord.uid,
+      criadoPor: adminEmail,
+      criadoEm: Timestamp.now(),
+      atualizadoEm: Timestamp.now()
+    });
+  } catch (error) {
+    if (error.code === 6 || error.code === 'already-exists') {
+      throw new HttpsError('already-exists', 'Já existe um cadastro de vendedor com este e-mail.');
+    }
+    // Roll back only an account created by this invocation; never delete a pre-existing account.
+    if (userRecord && userRecord.metadata && userRecord.metadata.creationTime === userRecord.metadata.lastSignInTime) {
+      // Do not automatically delete accounts: the user may have signed in concurrently.
+    }
+    throw error;
+  }
+
+  const resetLink = await auth.generatePasswordResetLink(email);
+  return { ok: true, email, resetLink, accountAlreadyExisted: userRecord.metadata.creationTime !== userRecord.metadata.lastSignInTime };
+});
 
 function moneyToCents(value) {
   try {

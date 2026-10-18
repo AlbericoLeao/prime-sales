@@ -1,8 +1,75 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    function emailOf() {
+      return request.auth.token.email.lower();
+    }
+
+    function isAdmin() {
+      return isSignedIn() && emailOf() == 'albericoprestes2014@gmail.com';
+    }
+
+    function isOwner(emailField) {
+      return isSignedIn() && emailField != null && emailField.lower() == emailOf();
+    }
+
+    match /vendedores/{email} {
+      allow get: if isSignedIn() && (isAdmin() || emailOf() == email.lower());
+      allow list: if isSignedIn() && isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isSignedIn() && emailOf() == email.lower());
+      allow delete: if isAdmin();
+    }
+
+    match /clientes/{clienteId} {
+      allow get: if isSignedIn() && (isAdmin() || resource.data.vendedorEmail != null && resource.data.vendedorEmail.lower() == emailOf());
+      allow list: if isSignedIn() && isAdmin();
+      allow create: if isSignedIn() && (
+        isAdmin() || (
+          request.resource.data.vendedorEmail != null &&
+          request.resource.data.vendedorEmail.lower() == emailOf()
+        )
+      );
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          resource.data.vendedorEmail != null &&
+          resource.data.vendedorEmail.lower() == emailOf() &&
+          request.resource.data.vendedorEmail != null &&
+          request.resource.data.vendedorEmail.lower() == emailOf()
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /produtos/{produtoId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /pedidos/{pedidoId} {
+      allow get: if isSignedIn() && (isAdmin() || resource.data.vendedorEmail != null && resource.data.vendedorEmail.lower() == emailOf());
+      allow list: if isSignedIn() && (isAdmin() || request.auth.token.email != null);
+      allow create: if isSignedIn() && (
+        request.resource.data.vendedorEmail != null &&
+        request.resource.data.vendedorEmail.lower() == emailOf()
+      );
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        resource.data.vendedorEmail != null &&
+        resource.data.vendedorEmail.lower() == emailOf() &&
+        request.resource.data.vendedorEmail != null &&
+        request.resource.data.vendedorEmail.lower() == emailOf() &&
+        request.resource.data.clienteId == resource.data.clienteId &&
+        request.resource.data.itens == resource.data.itens &&
+        request.resource.data.total == resource.data.total &&
+        request.resource.data.status == resource.data.status
+      );
+      allow delete: if isAdmin();
     }
   }
 }

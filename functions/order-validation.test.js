@@ -1,23 +1,26 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { toCents, positiveQuantity, lineTotalCents } = require('./order-domain');
 
-function cents(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) throw new Error('invalid price');
-  return Math.round((n + Number.EPSILON) * 100);
-}
-
-test('money conversion rounds decimal prices to cents', () => {
-  assert.equal(cents(12.345), 1235);
-  assert.equal(cents('19.90'), 1990);
+test('server price conversion rounds to integer cents', () => {
+  assert.equal(toCents(12.345), 1235);
+  assert.equal(toCents('19.90'), 1990);
 });
 
-test('money conversion rejects negative and non-finite prices', () => {
-  assert.throws(() => cents(-1));
-  assert.throws(() => cents('NaN'));
+test('server price conversion rejects negative, non-finite and unsafe prices', () => {
+  assert.throws(() => toCents(-1), RangeError);
+  assert.throws(() => toCents('NaN'), RangeError);
+  assert.throws(() => toCents(Number.MAX_VALUE), RangeError);
 });
 
-test('line totals use integer cents to avoid floating point drift', () => {
-  assert.equal(cents(0.1) * 3, 30);
-  assert.equal((cents(0.1) * 3) / 100, 0.3);
+test('server quantities must be positive integers within the allowed limit', () => {
+  assert.equal(positiveQuantity('3'), 3);
+  assert.throws(() => positiveQuantity(0), RangeError);
+  assert.throws(() => positiveQuantity(1.5), RangeError);
+  assert.throws(() => positiveQuantity(100001), RangeError);
+});
+
+test('line totals use integer cents and avoid floating-point drift', () => {
+  assert.equal(lineTotalCents(0.1, 3), 30);
+  assert.equal(lineTotalCents(19.9, 4), 7960);
 });

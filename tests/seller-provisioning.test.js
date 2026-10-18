@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const service = readFileSync('app/firebase-service.js', 'utf8');
 const app = readFileSync('app/app.js', 'utf8');
@@ -25,4 +25,16 @@ test('legacy standalone Prime Sales and test HTML pages are excluded from Fireba
   assert.ok(hosting.ignore.includes('**/prime-sales*.html'));
   assert.ok(hosting.ignore.includes('**/teste-*.html'));
   assert.ok(hosting.ignore.includes('**/admin-panel.html'));
+});
+
+test('retired standalone HTML versions no longer expose old signup screens', () => {
+  const legacyPages = readdirSync('.').filter(name =>
+    name.endsWith('.html') && (/^prime-sales/i.test(name) || /^teste-/i.test(name) || /^admin-panel/i.test(name))
+  );
+  assert.ok(legacyPages.length > 0, 'expected to find legacy HTML versions');
+  for (const file of legacyPages) {
+    const html = readFileSync(file, 'utf8');
+    assert.match(html, /Esta versão antiga do Prime Sales foi desativada/, file + ' must redirect to index.html');
+    assert.doesNotMatch(html, /createUserWithEmailAndPassword/, file + ' must not contain Firebase self-signup code');
+  }
 });

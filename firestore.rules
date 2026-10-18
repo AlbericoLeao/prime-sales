@@ -40,58 +40,6 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/clientes/$(clienteId)).data.status != 'inativo';
     }
 
-    function validSellerOrderCreate() {
-      return activeSeller()
-        && request.resource.data.keys().hasAll([
-          'numero', 'vendedorEmail', 'vendedorNome', 'clienteId', 'cliente',
-          'itens', 'observacoes', 'total', 'status', 'historico',
-          'enviadoEm', 'criadoEm', 'atualizadoEm'
-        ])
-        && request.resource.data.keys().hasOnly([
-          'numero', 'vendedorEmail', 'vendedorNome', 'clienteId', 'cliente',
-          'itens', 'observacoes', 'total', 'status', 'historico',
-          'enviadoEm', 'criadoEm', 'atualizadoEm'
-        ])
-        && request.resource.data.vendedorEmail == email()
-        && request.resource.data.status == 'pendente'
-        && request.resource.data.clienteId is string
-        && request.resource.data.itens is list
-        && request.resource.data.itens.size() > 0
-        && request.resource.data.total is number
-        && request.resource.data.total >= 0
-        && assignedClient(request.resource.data.clienteId);
-    }
-
-    function validAdminOrderStatusUpdate() {
-      return admin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'historico', 'atualizadoEm', 'aprovadoEm', 'rejeitadoEm',
-          'estoqueBaixado', 'faturadoEm', 'faturadoPor', 'faturadoPorEmail'
-        ])
-        && (
-          (
-            resource.data.status == 'pendente'
-            && request.resource.data.status in ['aprovado', 'rejeitado']
-            && (
-              (request.resource.data.status == 'aprovado'
-                && request.resource.data.keys().hasAll(['aprovadoEm', 'estoqueBaixado'])
-                && request.resource.data.estoqueBaixado == true)
-              ||
-              (request.resource.data.status == 'rejeitado'
-                && request.resource.data.keys().hasAll(['rejeitadoEm']))
-            )
-          )
-          ||
-          (
-            resource.data.status == 'aprovado'
-            && request.resource.data.status == 'faturado'
-            && request.resource.data.keys().hasAll(['faturadoEm', 'faturadoPor', 'faturadoPorEmail'])
-            && request.resource.data.faturadoPorEmail == email()
-            && request.resource.data.faturadoPor == email()
-          )
-        );
-    }
-
     function validAdminOrderArchive() {
       return admin()
         && resource.data.arquivado != true
@@ -131,8 +79,9 @@ service cloud.firestore {
     match /pedidos/{id} {
       allow read: if admin()
         || (activeSeller() && resource.data.vendedorEmail == email());
-      allow create: if admin() || validSellerOrderCreate();
-      allow update: if validAdminOrderStatusUpdate() || validAdminOrderArchive();
+      // Orders are created and transitioned only by trusted callable functions.
+      allow create: if false;
+      allow update: if validAdminOrderArchive();
       allow delete: if false;
     }
   }

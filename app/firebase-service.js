@@ -11,6 +11,11 @@ if (!firebaseConfig) throw new Error('Firebase config missing. Verifique firebas
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const functions = getFunctions(app, 'us-central1');
+export async function callFunction(name, data) {
+  const result = await httpsCallable(functions, name)(data);
+  return result.data;
+}
 export const fb = {
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
   collection, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, updateDoc, deleteDoc,

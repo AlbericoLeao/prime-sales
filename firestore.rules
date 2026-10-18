@@ -19,9 +19,13 @@ service cloud.firestore {
       return signedIn()
         && exists(/databases/$(database)/documents/vendedores/$(email()))
         && (
-          get(/databases/$(database)/documents/vendedores/$(email())).data.status == 'ativo'
+          (
+            'status' in get(/databases/$(database)/documents/vendedores/$(email())).data
+            && get(/databases/$(database)/documents/vendedores/$(email())).data.status == 'ativo'
+          )
           || (
             !('status' in get(/databases/$(database)/documents/vendedores/$(email())).data)
+            && 'ativo' in get(/databases/$(database)/documents/vendedores/$(email())).data
             && get(/databases/$(database)/documents/vendedores/$(email())).data.ativo == true
           )
         )
@@ -44,7 +48,7 @@ service cloud.firestore {
 
     function validAdminOrderArchive() {
       return admin()
-        && resource.data.arquivado != true
+        && (!('arquivado' in resource.data) || resource.data.arquivado != true)
         && request.resource.data.status == resource.data.status
         && request.resource.data.arquivado == true
         && request.resource.data.arquivadoPorEmail == email()

@@ -965,7 +965,7 @@ async function onAuth(user) {
   hideProtectedUi();
   try {
     const authEmail = String(user.email || '').trim().toLowerCase();
-    const isAdminEmail = ADMIN_EMAILS.includes(authEmail);
+    const isAdminEmail = ADMIN_EMAILS.includes(authEmail) && user.emailVerified === true;
     const snap = isAdminEmail ? null : await fb.getDoc(ref('vendedores', authEmail));
     if (!isAdminEmail && !snap.exists()) { await fb.signOut(auth); showLogin('Seu cadastro de vendedor não foi encontrado. Fale com o administrador.'); return; }
     const profile = isAdminEmail

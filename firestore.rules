@@ -1,8 +1,133 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function email() {
+      return signedIn() && request.auth.token.email is string
+        ? request.auth.token.email.lower()
+        : '';
+    }
+
+    function admin() {
+      return email() == 'albericoprestes2014@gmail.com';
+    }
+
+    function activeSeller() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/vendedores/$(email()))
+        && get(/databases/$(database)/documents/vendedores/$(email())).data.status == 'ativo'
+        && get(/databases/$(database)/documents/vendedores/$(email())).data.bloqueado != true;
+    }
+
+    function activeProduct() {
+      return resource.data.ativo == true
+        || resource.data.status == 'ativo';
+    }
+
+    function assignedClient(clienteId) {
+      return activeSeller()
+        && clienteId is string
+        && exists(/databases/$(database)/documents/clientes/$(clienteId))
+        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorEmail == email()
+        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.status != 'inativo';
+    }
+
+    function validSellerOrderCreate() {
+      return activeSeller()
+        && request.resource.data.keys().hasAll([
+          'numero', 'vendedorEmail', 'vendedorNome', 'clienteId', 'cliente',
+          'itens', 'observacoes', 'total', 'status', 'historico',
+          'enviadoEm', 'criadoEm', 'atualizadoEm'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'numero', 'vendedorEmail', 'vendedorNome', 'clienteId', 'cliente',
+          'itens', 'observacoes', 'total', 'status', 'historico',
+          'enviadoEm', 'criadoEm', 'atualizadoEm'
+        ])
+        && request.resource.data.vendedorEmail == email()
+        && request.resource.data.status == 'pendente'
+        && request.resource.data.clienteId is string
+        && request.resource.data.itens is list
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && assignedClient(request.resource.data.clienteId);
+    }
+
+    function validAdminOrderStatusUpdate() {
+      return admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'historico', 'atualizadoEm', 'aprovadoEm', 'rejeitadoEm',
+          'estoqueBaixado', 'faturadoEm', 'faturadoPor', 'faturadoPorEmail'
+        ])
+        && (
+          (
+            resource.data.status == 'pendente'
+            && request.resource.data.status in ['aprovado', 'rejeitado']
+            && (
+              (request.resource.data.status == 'aprovado'
+                && request.resource.data.keys().hasAll(['aprovadoEm', 'estoqueBaixado'])
+                && request.resource.data.estoqueBaixado == true)
+              ||
+              (request.resource.data.status == 'rejeitado'
+                && request.resource.data.keys().hasAll(['rejeitadoEm']))
+            )
+          )
+          ||
+          (
+            resource.data.status == 'aprovado'
+            && request.resource.data.status == 'faturado'
+            && request.resource.data.keys().hasAll(['faturadoEm', 'faturadoPor', 'faturadoPorEmail'])
+            && request.resource.data.faturadoPorEmail == email()
+            && request.resource.data.faturadoPor == email()
+          )
+        );
+    }
+
+    function validAdminOrderArchive() {
+      return admin()
+        && resource.data.arquivado != true
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.arquivado == true
+        && request.resource.data.arquivadoPorEmail == email()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'arquivado', 'arquivadoEm', 'arquivadoPor', 'arquivadoPorEmail',
+          'atualizadoEm'
+        ]);
+    }
+
+    match /vendedores/{sellerEmail} {
+      allow read: if admin() || (signedIn() && sellerEmail == email());
+      allow create: if admin()
+        && request.resource.data.email == sellerEmail
+        && request.resource.data.status in ['ativo', 'bloqueado'];
+      allow update: if admin()
+        && request.resource.data.email == sellerEmail
+        && request.resource.data.status in ['ativo', 'bloqueado'];
+      allow delete: if false;
+    }
+
+    match /produtos/{id} {
+      allow read: if admin() || (activeSeller() && activeProduct());
+      allow create, update: if admin();
+      allow delete: if false;
+    }
+
+    match /clientes/{id} {
+      allow read: if admin()
+        || (activeSeller() && resource.data.vendedorEmail == email());
+      allow create, update: if admin();
+      allow delete: if false;
+    }
+
+    match /pedidos/{id} {
+      allow read: if admin()
+        || (activeSeller() && resource.data.vendedorEmail == email());
+      allow create: if admin() || validSellerOrderCreate();
+      allow update: if validAdminOrderStatusUpdate() || validAdminOrderArchive();
+      allow delete: if false;
     }
   }
 }

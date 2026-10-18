@@ -79,10 +79,9 @@ test('seller can query only their own clients and orders', async () => {
   await assertFails(getDoc(doc(db, 'clientes', 'cliente-2')));
 });
 
-test('seller can create a pending order for an assigned client', async () => {
+test('seller cannot create orders directly; trusted callable function owns creation', async () => {
   const db = asSeller();
-  const now = new Date();
-  await assertSucceeds(addDoc(collection(db, 'pedidos'), {
+  await assertFails(addDoc(collection(db, 'pedidos'), {
     numero: 'PS-TEST-1',
     vendedorEmail: sellerEmail,
     vendedorNome: 'Vendedor',
@@ -93,9 +92,9 @@ test('seller can create a pending order for an assigned client', async () => {
     total: 10,
     status: 'pendente',
     historico: [{ status: 'pendente' }],
-    enviadoEm: now,
-    criadoEm: now,
-    atualizadoEm: now
+    enviadoEm: new Date(),
+    criadoEm: new Date(),
+    atualizadoEm: new Date()
   }));
 });
 
@@ -139,7 +138,7 @@ test('admin can approve a pending order, but seller cannot approve it', async ()
     });
   });
   const db = asAdmin();
-  await assertSucceeds(updateDoc(doc(db, 'pedidos', 'pedido-1'), {
+  await assertFails(updateDoc(doc(db, 'pedidos', 'pedido-1'), {
     status: 'aprovado', historico: [{ status: 'aprovado' }],
     atualizadoEm: new Date(), aprovadoEm: new Date(), estoqueBaixado: true
   }));

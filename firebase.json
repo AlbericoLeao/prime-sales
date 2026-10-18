@@ -7,7 +7,11 @@
       "**/node_modules/**",
       "**/prime-sales*.html",
       "**/admin-panel.html",
-      "**/teste-*.html"
+      "**/teste-*.html",
+      "functions/**",
+      "tests/**",
+      "package.json",
+      "**/package-lock.json"
     ],
     "headers": [
       {

@@ -25,7 +25,8 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/vendedores/$(email())).data.ativo == true
           )
         )
-        && get(/databases/$(database)/documents/vendedores/$(email())).data.bloqueado != true;
+        && (!('bloqueado' in get(/databases/$(database)/documents/vendedores/$(email())).data)
+          || get(/databases/$(database)/documents/vendedores/$(email())).data.bloqueado != true);
     }
 
     function activeProduct() {
@@ -37,7 +38,8 @@ service cloud.firestore {
         && clienteId is string
         && exists(/databases/$(database)/documents/clientes/$(clienteId))
         && get(/databases/$(database)/documents/clientes/$(clienteId)).data.vendedorEmail == email()
-        && get(/databases/$(database)/documents/clientes/$(clienteId)).data.status != 'inativo';
+        && (!('status' in get(/databases/$(database)/documents/clientes/$(clienteId)).data)
+          || get(/databases/$(database)/documents/clientes/$(clienteId)).data.status != 'inativo');
     }
 
     function validAdminOrderArchive() {

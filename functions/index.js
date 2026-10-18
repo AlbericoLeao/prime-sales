@@ -21,7 +21,7 @@ function requireEmail(request) {
 
 function requireAdmin(request) {
   const email = requireEmail(request);
-  if (email !== ADMIN_EMAIL) {
+  if (email !== ADMIN_EMAIL || request.auth.token.email_verified !== true) {
     throw new HttpsError('permission-denied', 'Somente o administrador pode processar pedidos.');
   }
   return email;
@@ -81,6 +81,9 @@ exports.createSeller = onCall({ region: 'us-central1', enforceAppCheck: false },
     });
   } catch (error) {
     if (error.code === 6 || error.code === 'already-exists') {
+      if (accountCreated) {
+        try { await auth.deleteUser(userRecord.uid); } catch (rollbackError) { console.error('Could not roll back newly created seller Auth user', rollbackError); }
+      }
       throw new HttpsError('already-exists', 'Já existe um cadastro de vendedor com este e-mail.');
     }
     // Roll back only an account created by this invocation; never delete a pre-existing account.

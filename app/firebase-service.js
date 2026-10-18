@@ -1,5 +1,5 @@
-import { initializeApp, deleteApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js';
 import {
   getFirestore, collection, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, updateDoc, deleteDoc,
@@ -18,7 +18,7 @@ export async function callFunction(name, data) {
   return result.data;
 }
 export const fb = {
-  signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged,
+  signInWithEmailAndPassword, signOut, onAuthStateChanged,
   collection, doc, addDoc, setDoc, getDoc, getDocs, onSnapshot, updateDoc, deleteDoc,
   query, where, orderBy, serverTimestamp, writeBatch
 };
@@ -26,10 +26,3 @@ export const fb = {
 export function col(name) { return collection(db, name); }
 export function ref(name, id) { return doc(db, name, id); }
 
-export async function createSecondaryUser(email, password) {
-  const secondary = initializeApp(firebaseConfig, `secondary-${Date.now()}`);
-  const secondaryAuth = getAuth(secondary);
-  const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-  await deleteApp(secondary);
-  return cred;
-}

@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { readFileSync } = require('node:fs');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 const service = readFileSync('app/firebase-service.js', 'utf8');
 const app = readFileSync('app/app.js', 'utf8');

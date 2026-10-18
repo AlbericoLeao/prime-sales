@@ -759,18 +759,34 @@ async function saveSeller() {
   const blocked = $('#seller-status')?.value === 'bloqueado';
   if (!nome) return toast('Informe o nome do vendedor.');
   if (!email) return toast('Informe o e-mail do vendedor.');
+  if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return toast('Informe um e-mail válido.');
 
   try {
+    if (!id) {
+      const result = await callFunction('createSeller', { nome, email });
+      state.sellerEditId = email;
+      toast('Conta de vendedor criada. Envie o link de redefinição de senha ao titular.');
+      if (result.resetLink) {
+        window.prompt(
+          result.accountAlreadyExisted
+            ? 'A conta de autenticação já existia. Envie este link de redefinição de senha ao titular por um canal seguro:'
+            : 'Conta criada. Envie este link de redefinição de senha ao titular por um canal seguro:',
+          result.resetLink
+        );
+      }
+      return;
+    }
+
     await saveSellerDoc(email, {
       nome,
       email,
       status: blocked ? 'bloqueado' : 'ativo'
-    }, !id);
+    }, false);
     state.sellerEditId = email;
-    toast('Vendedor salvo.');
+    toast('Vendedor atualizado.');
   } catch (err) {
     console.error(err);
-    toast(`Erro ao salvar vendedor: ${err.message}`);
+    toast(`Erro ao salvar vendedor: ${err.message || 'erro inesperado'}`);
   }
 }
 

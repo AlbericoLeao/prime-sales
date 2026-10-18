@@ -1,6 +1,6 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
+const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 
 initializeApp();
 const db = getFirestore();
@@ -154,6 +154,7 @@ exports.createOrder = onCall({ region: 'us-central1', enforceAppCheck: false }, 
       observacoes,
       total,
       status: 'pendente',
+      validadoServidor: true,
       historico: [historyEntry('pendente', email, seller.nome)],
       enviadoEm: createdAt,
       criadoEm: createdAt,
@@ -196,7 +197,24 @@ exports.processOrder = onCall({ region: 'us-central1', enforceAppCheck: false },
       }
 
       const updates = [];
+      let legacyValidatedItems = null;
+      let legacyValidatedTotal = null;
       if (action === 'aprovado') {
+        const isServerValidated = order.validadoServidor === true;
+        let legacySellerSnap = null;
+        let legacyClientSnap = null;
+        if (!isServerValidated) {
+          const legacySellerRef = db.collection('vendedores').doc(normalizedEmail(order.vendedorEmail));
+          const legacyClientRef = db.collection('clientes').doc(safeText(order.clienteId, 180));
+          legacySellerSnap = await tx.get(legacySellerRef);
+          legacyClientSnap = await tx.get(legacyClientRef);
+          if (!legacySellerSnap.exists || !activeSellerData(legacySellerSnap.data())) {
+            throw new HttpsError('failed-precondition', 'O vendedor deste pedido não está ativo. Revise o pedido antes de aprovar.');
+          }
+          if (!legacyClientSnap.exists || normalizedEmail(legacyClientSnap.data().vendedorEmail) !== normalizedEmail(order.vendedorEmail) || String(legacyClientSnap.data().status || '').toLowerCase() === 'inativo') {
+            throw new HttpsError('failed-precondition', 'A carteira do pedido mudou. Revise o cliente antes de aprovar.');
+          }
+        }
         const quantities = new Map();
         for (const item of order.itens) {
           const prodId = safeText(item.prodId, 180);
@@ -211,6 +229,7 @@ exports.processOrder = onCall({ region: 'us-central1', enforceAppCheck: false },
         for (const productRef of productRefs) productSnaps.push(await tx.get(productRef));
 
         let calculatedTotalCents = 0;
+        if (!isServerValidated) legacyValidatedItems = [];
         for (let i = 0; i < productSnaps.length; i++) {
           const snap = productSnaps[i];
           const productRef = productRefs[i];
@@ -228,19 +247,34 @@ exports.processOrder = onCall({ region: 'us-central1', enforceAppCheck: false },
           const lineItems = order.itens.filter(item => item.prodId === productRef.id);
           let itemTotalCents = 0;
           for (const item of lineItems) {
-            const unitCents = moneyToCents(item.preco);
+            const unitCents = isServerValidated ? moneyToCents(item.preco) : moneyToCents(product.preco);
             const expectedSubtotal = unitCents * qtyInteger(item.qty);
-            if (!Number.isSafeInteger(expectedSubtotal) || moneyToCents(item.subtotal) !== expectedSubtotal) {
+            if (!Number.isSafeInteger(expectedSubtotal) || (isServerValidated && moneyToCents(item.subtotal) !== expectedSubtotal)) {
               throw new HttpsError('failed-precondition', 'O subtotal salvo no pedido não confere.');
             }
             itemTotalCents += expectedSubtotal;
+            if (!isServerValidated) {
+              legacyValidatedItems.push({
+                prodId: productRef.id,
+                codigo: safeText(product.codigo || product.ref || productRef.id, 120),
+                nome: safeText(product.nome, 250),
+                marca: safeText(product.marca, 160),
+                preco: unitCents / 100,
+                precoOriginal: unitCents / 100,
+                precoFinal: unitCents / 100,
+                descontoPct: 0,
+                qty: qtyInteger(item.qty),
+                subtotal: expectedSubtotal / 100
+              });
+            }
           }
           calculatedTotalCents += itemTotalCents;
           updates.push({ ref: productRef, stock: stock - qty, name: safeText(product.nome, 120) });
         }
-        if (moneyToCents(order.total) !== calculatedTotalCents) {
+        if (isServerValidated && moneyToCents(order.total) !== calculatedTotalCents) {
           throw new HttpsError('failed-precondition', 'O total salvo no pedido não confere com os itens.');
         }
+        if (!isServerValidated) legacyValidatedTotal = calculatedTotalCents / 100;
         for (const update of updates) {
           tx.update(update.ref, { estoque: update.stock, atualizadoEm: now });
         }
@@ -254,6 +288,11 @@ exports.processOrder = onCall({ region: 'us-central1', enforceAppCheck: false },
       if (action === 'aprovado') {
         nextOrder.aprovadoEm = now;
         nextOrder.estoqueBaixado = true;
+        nextOrder.validadoServidor = true;
+        if (legacyValidatedItems) {
+          nextOrder.itens = legacyValidatedItems;
+          nextOrder.total = legacyValidatedTotal;
+        }
       } else {
         nextOrder.rejeitadoEm = now;
       }

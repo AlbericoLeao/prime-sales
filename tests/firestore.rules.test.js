@@ -151,3 +151,24 @@ test('blocked seller cannot access product catalogue', async () => {
   });
   await assertFails(getDoc(doc(asSeller(), 'produtos', 'produto-1')));
 });
+
+test('ordinary authenticated user cannot create or escalate a seller profile', async () => {
+  const db = asSeller();
+  await assertFails(setDoc(doc(db, 'vendedores', 'novo@example.com'), {
+    email: 'novo@example.com', nome: 'Conta criada por usuário comum', status: 'ativo', role: 'admin'
+  }));
+  await assertFails(setDoc(doc(db, 'vendedores', sellerEmail), {
+    email: sellerEmail, nome: 'Tentativa de elevar privilégios', status: 'ativo', role: 'admin'
+  }, { merge: true }));
+});
+
+test('only admin can create seller profiles', async () => {
+  const adminDb = asAdmin();
+  await assertSucceeds(setDoc(doc(adminDb, 'vendedores', 'novo@example.com'), {
+    email: 'novo@example.com', nome: 'Novo vendedor', status: 'ativo'
+  }));
+  await assertFails(setDoc(doc(asSeller(), 'vendedores', 'outro-novo@example.com'), {
+    email: 'outro-novo@example.com', nome: 'Não autorizado', status: 'ativo'
+  }));
+});
+

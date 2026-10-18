@@ -13,7 +13,7 @@ test('operational browser service does not expose Firebase self-signup helpers',
 });
 
 test('new seller provisioning uses an admin-checked callable function', () => {
-  assert.match(app, /callFunction\('createSeller',\s*\{\s*nome,\s*email\s*\}\)/);
+  assert.match(app, /callFunction\('createSeller',\s*\{\s*nome,\s*email,\s*status:\s*blocked\s*\?\s*'bloqueado'\s*:\s*'ativo'\s*\}\)/);
   assert.match(functions, /exports\.createSeller\s*=\s*onCall/);
   assert.match(functions, /const adminEmail = requireAdmin\(request\)/);
   assert.match(functions, /request\.auth\.token\.email_verified !== true/);

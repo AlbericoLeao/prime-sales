@@ -1,4 +1,4 @@
-import { auth, db, fb, col, ref } from './firebase-service.js';
+import { auth, db, fb, col, ref, callFunction } from './firebase-service.js';
 import { $, $$, money, tsMs, formatDate, escapeHtml, toast } from './utils.js';
 import { gerarPedidoPDF } from './pdf.js';
 
@@ -718,31 +718,12 @@ async function sendOrder(button) {
   const itens = Object.values(state.cart).filter(item => Number(item.qty || 0) > 0);
   if (!cliente) return toast('Selecione um cliente da sua carteira.');
   if (!itens.length) return toast('Adicione produtos ao pedido.');
-  const numero = `PS-${Date.now().toString(36).toUpperCase()}`;
   if (button) button.disabled = true;
   try {
-    await fb.addDoc(col('pedidos'), {
-      numero,
-      vendedorEmail: email,
-      vendedorNome: vendedorNome(),
+    await callFunction('createOrder', {
       clienteId: cliente.id,
-      cliente: {
-        id: cliente.id || '',
-        nome: cliente.nome || '',
-        fantasia: cliente.fantasia || '',
-        cnpj: cliente.cnpj || '',
-        telefone: cliente.telefone || '',
-        cidade: cliente.cidade || '',
-        estado: cliente.estado || ''
-      },
-      itens,
-      observacoes: state.pedidoObs.trim(),
-      total: cartTotal(),
-      status: 'pendente',
-      historico: [statusHistory('pendente')],
-      enviadoEm: fb.serverTimestamp(),
-      criadoEm: fb.serverTimestamp(),
-      atualizadoEm: fb.serverTimestamp()
+      itens: itens.map(item => ({ prodId: item.prodId, qty: Number(item.qty) })),
+      observacoes: state.pedidoObs.trim()
     });
     state.cart = {};
     state.pedidoClienteId = '';
@@ -904,17 +885,13 @@ async function changeOrderStatus(id, status) {
   if (!pedido) return;
   const allowed = { pendente: ['aprovado', 'rejeitado'], aprovado: ['faturado'] };
   if (!allowed[pedido.status]?.includes(status)) return toast(`Transição inválida: ${STATUS[pedido.status] || pedido.status} → ${STATUS[status] || status}.`);
-  const update = { status, atualizadoEm: fb.serverTimestamp(), historico: [...(pedido.historico || []), statusHistory(status)] };
-  if (status === 'aprovado') { update.aprovadoEm = fb.serverTimestamp(); await baixarEstoqueDoPedido(pedido); update.estoqueBaixado = true; }
-  if (status === 'rejeitado') update.rejeitadoEm = fb.serverTimestamp();
-  if (status === 'faturado') {
-    update.faturadoEm = fb.serverTimestamp();
-    update.faturadoPor = currentUserEmail();
-    update.faturadoPorEmail = currentUserEmail();
+  try {
+    await callFunction('processOrder', { orderId: id, action: status });
+    toast(`Pedido ${STATUS[status].toLowerCase()}.`);
+  } catch (err) {
+    console.error(err);
+    toast(`Não foi possível ${status === 'aprovado' ? 'aprovar e baixar o estoque' : status === 'rejeitado' ? 'rejeitar' : 'faturar'} o pedido: ${err.message || 'erro inesperado'}`);
   }
-  if (status === 'cancelado') update.canceladoEm = fb.serverTimestamp();
-  await fb.updateDoc(ref('pedidos', id), update);
-  toast(`Pedido ${STATUS[status].toLowerCase()}.`);
 }
 
 async function archiveOrder(id) {
@@ -934,17 +911,6 @@ async function archiveOrder(id) {
     console.error(err);
     toast(`Erro ao arquivar pedido: ${err.message}`);
   }
-}
-
-async function baixarEstoqueDoPedido(pedido) {
-  if (pedido.estoqueBaixado) return;
-  const batch = fb.writeBatch(db);
-  (pedido.itens || []).forEach(item => {
-    const produto = state.produtos.find(p => p.id === item.prodId);
-    if (!produto) return;
-    batch.update(ref('produtos', item.prodId), { estoque: Math.max(0, Number(produto.estoque || 0) - Number(item.qty || 0)), atualizadoEm: fb.serverTimestamp() });
-  });
-  await batch.commit();
 }
 
 async function boot() {

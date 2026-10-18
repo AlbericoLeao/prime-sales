@@ -53,7 +53,7 @@ beforeEach(async () => {
 });
 
 function asAdmin() {
-  return env.authenticatedContext('admin-uid', { email: adminEmail }).firestore();
+  return env.authenticatedContext('admin-uid', { email: adminEmail, email_verified: true }).firestore();
 }
 function asSeller(email = sellerEmail) {
   return env.authenticatedContext('seller-uid', { email }).firestore();
@@ -151,3 +151,35 @@ test('blocked seller cannot access product catalogue', async () => {
   });
   await assertFails(getDoc(doc(asSeller(), 'produtos', 'produto-1')));
 });
+
+test('ordinary authenticated user cannot create or escalate a seller profile', async () => {
+  const db = asSeller();
+  await assertFails(setDoc(doc(db, 'vendedores', 'novo@example.com'), {
+    email: 'novo@example.com', nome: 'Conta criada por usuário comum', status: 'ativo', role: 'admin'
+  }));
+  await assertFails(setDoc(doc(db, 'vendedores', sellerEmail), {
+    email: sellerEmail, nome: 'Tentativa de elevar privilégios', status: 'ativo', role: 'admin'
+  }, { merge: true }));
+});
+
+test('only admin can create seller profiles', async () => {
+  const adminDb = asAdmin();
+  await assertSucceeds(setDoc(doc(adminDb, 'vendedores', 'novo@example.com'), {
+    email: 'novo@example.com', nome: 'Novo vendedor', status: 'ativo'
+  }));
+  await assertFails(setDoc(doc(asSeller(), 'vendedores', 'outro-novo@example.com'), {
+    email: 'outro-novo@example.com', nome: 'Não autorizado', status: 'ativo'
+  }));
+});
+
+
+test('unverified account claiming the administrator email receives no admin privileges', async () => {
+  const db = env.authenticatedContext('unverified-admin-uid', {
+    email: adminEmail, email_verified: false
+  }).firestore();
+  await assertFails(getDoc(doc(db, 'produtos', 'produto-1')));
+  await assertFails(setDoc(doc(db, 'vendedores', 'attacker@example.com'), {
+    email: 'attacker@example.com', nome: 'Tentativa de escalação', status: 'ativo'
+  }));
+});
+

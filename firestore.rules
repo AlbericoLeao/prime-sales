@@ -12,7 +12,9 @@ service cloud.firestore {
     }
 
     function admin() {
-      return email() == 'albericoprestes2014@gmail.com';
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && email() == 'albericoprestes2014@gmail.com';
     }
 
     function activeSeller() {

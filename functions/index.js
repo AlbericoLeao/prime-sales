@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
+const { toCents, positiveQuantity } = require('./order-domain');
 
 initializeApp();
 const db = getFirestore();
@@ -26,19 +27,19 @@ function requireAdmin(request) {
 }
 
 function moneyToCents(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) {
+  try {
+    return toCents(value);
+  } catch {
     throw new HttpsError('failed-precondition', 'O produto possui um preço inválido.');
   }
-  return Math.round((n + Number.EPSILON) * 100);
 }
 
 function qtyInteger(value) {
-  const qty = Number(value);
-  if (!Number.isSafeInteger(qty) || qty <= 0 || qty > 100000) {
+  try {
+    return positiveQuantity(value);
+  } catch {
     throw new HttpsError('invalid-argument', 'A quantidade de cada produto deve ser um inteiro positivo.');
   }
-  return qty;
 }
 
 function activeSellerData(data) {
@@ -244,7 +245,7 @@ exports.processOrder = onCall({ region: 'us-central1', enforceAppCheck: false },
             throw new HttpsError('failed-precondition', 'Estoque insuficiente para ' + safeText(product.nome, 120) + '. Disponível: ' + stock + ', solicitado: ' + qty + '.');
           }
 
-          const lineItems = order.itens.filter(item => item.prodId === productRef.id);
+          const lineItems = order.itens.filter(item => safeText(item.prodId, 180) === productRef.id);
           let itemTotalCents = 0;
           for (const item of lineItems) {
             const unitCents = isServerValidated ? moneyToCents(item.preco) : moneyToCents(product.preco);

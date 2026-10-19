@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 16164)
+Total output lines: 1189
+
 import { auth, db, fb, col, ref } from './firebase-service.js';
 import { $, $$, money, tsMs, formatDate, escapeHtml, toast } from './utils.js';
 import { gerarPedidoPDF } from './pdf.js';
@@ -26,6 +29,9 @@ const state = {
   clientEditId: '',
   sellerEditId: '',
   companySettings: {},
+  companyPdfSettings: {},
+  companyLogoDraft: null,
+  companySettingsLoad: { company: 'idle', pdf: 'idle' },
   accessBlocked: false
 };
 
@@ -40,10 +46,24 @@ const STATUS = {
 const ADMIN_EMAILS = ['albericoprestes2014@gmail.com'];
 const COMPANY_SETTINGS_DEFAULTS = {
   nomeEmpresa: 'Prime Representações', nomeFantasia: 'Prime Sales', cnpj: '', representante: '',
-  telefone: '', whatsapp: '', emailComercial: '', site: '', endereco: '', cidade: '', estado: '',
-  logoDataUrl: '', pdfNomeExibido: 'Prime Representações',
-  pdfTextoAbaixoLogo: 'Pedido comercial gerado pelo Prime Sales', pdfContatoExibido: '', pdfRodape: ''
+  telefone: '', whatsapp: '', emailComercial: '', site: '', endereco: '', cidade: '', estado: ''
 };
+const COMPANY_PDF_DEFAULTS = {
+  pdfNomeExibido: 'Prime Representações',
+  pdfTextoAbaixoLogo: 'Pedido comercial gerado pelo Prime Sales',
+  logoDataUrl: '', pdfContatoExibido: '', pdfRodape: ''
+};
+const COMPANY_FIELD_LIMITS = {
+  nomeEmpresa: 120, nomeFantasia: 120, cnpj: 18, representante: 120,
+  telefone: 30, whatsapp: 30, emailComercial: 254, site: 2048,
+  endereco: 240, cidade: 100, estado: 2
+};
+const COMPANY_PDF_FIELD_LIMITS = {
+  pdfNomeExibido: 120, pdfTextoAbaixoLogo: 200, pdfContatoExibido: 250, pdfRodape: 600
+};
+const MAX_LOGO_FILE_BYTES = 500 * 1024;
+const MAX_LOGO_DATA_URL_CHARS = 700000;
+const MAX_SETTINGS_DOCUMENT_BYTES = 850 * 1024;
 const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['vendedores','👤','Vendedores'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos'], ['empresa','🏢','Minha Empresa']];
 const VEND_NAV = [['carteira','👥','Carteira'], ['catalogo','📦','Catálogo'], ['meus','📋','Pedidos']];
 
@@ -121,6 +141,9 @@ function resetSessionState() {
   state.clientEditId = '';
   state.sellerEditId = '';
   state.companySettings = {};
+  state.companyPdfSettings = {};
+  state.companyLogoDraft = null;
+  state.companySettingsLoad = { company: 'idle', pdf: 'idle' };
   state.accessBlocked = false;
   $('#content').innerHTML = '';
   $('#main-nav').innerHTML = '';
@@ -235,6 +258,31 @@ function listenDoc(source, callback) {
   state.unsubs.push(unsub);
 }
 
+function listenSettingsDoc(docId, stateKey) {
+  const loadKey = stateKey === 'companySettings' ? 'company' : 'pdf';
+  const clearValue = status => {
+    state[stateKey] = {};
+    state.companySettingsLoad[loadKey] = status;
+    if (stateKey === 'companyPdfSettings') state.companyLogoDraft = null;
+    if (state.user) rerender();
+  };
+  try {
+    const unsub = fb.onSnapshot(ref('configuracoes', docId), snap => {
+      state[stateKey] = snap.exists() ? { id: snap.id, ...snap.data() } : {};
+      state.companySettingsLoad[loadKey] = 'ready';
+      if (!snap.exists() && stateKey === 'companyPdfSettings') state.companyLogoDraft = null;
+      if (state.user) rerender();
+    }, err => {
+      clearValue('error');
+      toast(`Erro ao carregar configurações da empresa: ${err.message}`);
+    });
+    state.unsubs.push(unsub);
+  } catch (err) {
+    clearValue('error');
+    toast(`Erro ao carregar configurações da empresa: ${err.message}`);
+  }
+}
+
 function startListeners() {
   state.unsubs.forEach(unsub => unsub());
   state.unsubs = [];
@@ -243,7 +291,8 @@ function startListeners() {
     return;
   }
   if (isAdmin()) {
-    listenDoc(ref('configuracoes', 'empresa'), doc => { state.companySettings = doc; rerender(); });
+    listenSettingsDoc('empresa', 'companySettings');
+    listenSettingsDoc('empresaPdf', 'companyPdfSettings');
     listen(fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
     listen(col('clientes'), docs => { state.clientes = docs.sort(byName); rerender(); });
     listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
@@ -251,7 +300,7 @@ function startListeners() {
     return;
   }
   if (!isVend()) return;
-  listenDoc(ref('configuracoes', 'empresa'), doc => { state.companySettings = doc; rerender(); });
+  listenSettingsDoc('empresaPdf', 'companyPdfSettings');
   const email = currentUserEmail();
   listen(fb.query(col('pedidos'), fb.where('vendedorEmail', '==', email)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
   listen(fb.query(col('clientes'), fb.where('vendedorEmail', '==', email)), docs => { state.clientes = docs.sort(byName); rerender(); });
@@ -379,15 +428,21 @@ function renderAdminProdutos() {
 }
 
 function companyValue(key) {
-  return escapeHtml(state.companySettings[key] ?? COMPANY_SETTINGS_DEFAULTS[key] ?? '');
+  const fromPdfDoc = Object.hasOwn(COMPANY_PDF_DEFAULTS, key);
+  const settings = fromPdfDoc ? state.companyPdfSettings : state.companySettings;
+  return escapeHtml(settings[key] ?? (fromPdfDoc ? COMPANY_PDF_DEFAULTS[key] : COMPANY_SETTINGS_DEFAULTS[key]) ?? '');
 }
 
 function renderMinhaEmpresa() {
   if (!isAdmin()) return head('Acesso restrito', 'Somente administradores podem editar as configurações da empresa.');
-  const logo = state.companySettings.logoDataUrl
-    ? `<img src="${escapeHtml(state.companySettings.logoDataUrl)}" alt="Prévia da logo">`
+  const logoDataUrl = state.companyLogoDraft ?? state.companyPdfSettings.logoDataUrl ?? '';
+  const logo = logoDataUrl
+    ? `<img src="${escapeHtml(logoDataUrl)}" alt="Prévia da logo">`
     : '<span>Logo da empresa</span>';
-  const field = (key, label, attrs = '') => `<label>${label}<input id="empresa-${key}" value="${companyValue(key)}" ${attrs}></label>`;
+  const field = (key, label, attrs = '') => {
+    const maxLength = COMPANY_FIELD_LIMITS[key] ?? COMPANY_PDF_FIELD_LIMITS[key];
+    return `<label>${label}<input id="empresa-${key}" value="${companyValue(key)}" maxlength="${maxLength}" ${attrs}></label>`;
+  };
   return `${head('Minha Empresa', 'Dados usados na identificação comercial e nos PDFs dos pedidos.')}` +
     `<section class="card company-settings"><div class="card-title"><h3>Dados da empresa</h3></div>` +
     `<div class="form-row">${field('nomeEmpresa', 'Nome da empresa')}${field('nomeFantasia', 'Nome fantasia')}</div>` +
@@ -399,8 +454,8 @@ function renderMinhaEmpresa() {
     `<section class="card company-settings"><div class="card-title"><h3>Logo</h3></div><div class="company-logo-row"><div class="company-logo-preview" id="empresa-logo-preview">${logo}</div><div><label>Selecionar imagem<input id="empresa-logo-file" type="file" accept="image/png,image/jpeg"></label><div class="row-sub">PNG ou JPG; até 500 KB.</div><button class="btn small" type="button" data-remove-company-logo>Remover logo</button></div></div></section>` +
     `<section class="card company-settings"><div class="card-title"><h3>Identificação no PDF</h3></div>` +
     `<div class="form-row">${field('pdfNomeExibido', 'Nome exibido no PDF')}${field('pdfContatoExibido', 'Contato exibido no PDF')}</div>` +
-    `${field('pdfTextoAbaixoLogo', 'Texto abaixo da logo')}<label>Rodapé do PDF<textarea id="empresa-pdfRodape" rows="3">${companyValue('pdfRodape')}</textarea></label></section>` +
-    `<div class="company-settings-actions"><button type="button" class="btn primary" data-save-company>Salvar configurações</button></div>`;
+    `${field('pdfTextoAbaixoLogo', 'Texto abaixo da logo')}<label>Rodapé do PDF<textarea id="empresa-pdfRodape" rows="3" maxlength="${COMPANY_PDF_FIELD_LIMITS.pdfRodape}">${companyValue('pdfRodape')}</textarea></label></section>` +
+    `<div class="company-settings-actions"><button type="button" class="btn primary" data-save-company ${state.companySettingsLoad.company === 'ready' && state.companySettingsLoad.pdf === 'ready' ? '' : 'disabled'}>Salvar configurações</button>${state.companySettingsLoad.company === 'error' || state.companySettingsLoad.pdf === 'error' ? '<p>Não foi possível ler as configurações. Atualize a página antes de editar.</p>' : state.companySettingsLoad.company !== 'ready' || state.companySettingsLoad.pdf !== 'ready' ? '<p>Carregando configurações…</p>' : ''}</div>`;
 }
 
 function renderCarteira() {
@@ -481,63 +536,7 @@ function filteredAdminProducts() {
 }
 
 function filteredAdminClients() {
-  const term = normalizeSearch(state.adminClienteBusca);
-  if (!term) return state.clientes;
-  return state.clientes.filter(c => {
-    const vendedor = sellerForClient(c) || {};
-    const sellerStatus = clientSellerStatus(c);
-    return [
-      c.nome,
-      c.razaoSocial,
-      c.fantasia,
-      c.nomeFantasia,
-      c.cnpj,
-      c.doc,
-      c.telefone,
-      c.tel,
-      c.cidade,
-      c.estado,
-      c.vendedorNome,
-      c.vendedorEmail,
-      sellerStatus.label,
-      sellerStatus.detail,
-      vendedor.nome,
-      vendedor.email,
-      vendedor.id
-    ].some(value => normalizeSearch(value).includes(term));
-  });
-}
-
-function searchedProducts() {
-  const term = state.catalogoBusca.trim().toLowerCase();
-  const products = activeProducts();
-  if (!term) return products;
-  return products.filter(p => [p.nome, p.codigo, p.ref, p.marca, p.descricao].some(value => String(value || '').toLowerCase().includes(term)));
-}
-
-function productCard(p, admin) {
-  const id = p.id;
-  const qty = state.cart[id]?.qty || 0;
-  const price = Number(p.preco || 0);
-  const subtotal = price * qty;
-  return `<article class="product-card"><div><div class="row-top"><div><div class="product-name">${escapeHtml(p.nome || 'Sem nome')}</div><div class="product-meta">${escapeHtml(productCode(p))} · ${escapeHtml(p.marca || 'Sem marca')} · Estoque ${Number(p.estoque || 0)}</div></div><div class="price">${money(price)}</div></div>${p.descricao ? `<div class="row-sub">${escapeHtml(p.descricao)}</div>` : ''}</div>${admin ? `<div class="actions"><button type="button" class="btn small" data-edit-product="${id}">Editar</button></div>` : `<div><div class="qty"><button type="button" data-qty="${id}" data-delta="-1">−</button><span>${qty}</span><button type="button" data-qty="${id}" data-delta="1">+</button></div><div class="row-sub">Desconto fixo: 0%</div><div class="row-top"><span class="row-sub">Subtotal</span><strong>${money(subtotal)}</strong></div></div>`}</article>`;
-}
-
-function produtoForm() {
-  const p = state.productEditId ? state.produtos.find(prod => prod.id === state.productEditId) || {} : {};
-  return `<section class="card"><div class="card-title"><h3>${p.id ? 'Editar produto' : 'Novo produto'}</h3></div><input type="hidden" id="prod-id" value="${escapeHtml(p.id || '')}"><div class="form-row"><label>Código<input id="prod-codigo" value="${escapeHtml(p.codigo || p.ref || '')}"></label><label>Nome<input id="prod-nome" value="${escapeHtml(p.nome || '')}"></label></div><div class="form-row"><label>Marca<input id="prod-marca" value="${escapeHtml(p.marca || '')}"></label><label>Preço<input id="prod-preco" type="number" min="0" step="0.01" value="${Number(p.preco || 0)}"></label></div><div class="form-row"><label>Estoque<input id="prod-estoque" type="number" min="0" value="${Number(p.estoque || 0)}"></label><label>Status<select id="prod-status"><option value="ativo" ${p.ativo === false || isInactiveStatus(p.status) ? '' : 'selected'}>Ativo</option><option value="inativo" ${p.ativo === false || isInactiveStatus(p.status) ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-product>Salvar produto</button>${p.id ? '<button type="button" class="btn" data-new-product>Novo produto</button>' : ''}</div></section>`;
-}
-
-function clienteForm() {
-  const c = state.clientEditId ? state.clientes.find(cli => cli.id === state.clientEditId) || {} : {};
-  const currentSellerEmail = sellerEmail({ email: c.vendedorEmail });
-  const vendedorOptions = state.vendedores.map(v => {
-    const email = sellerEmail(v);
-    return `<option value="${escapeHtml(email)}" ${currentSellerEmail === email ? 'selected' : ''}>${escapeHtml(`${sellerName(v)} (${email})`)}</option>`;
-  }).join('');
-  const sellerStatus = clientSellerStatus(c);
-  const assignmentStatus = c.id ? `<div class="row-sub"><span class="badge ${sellerStatus.badge}">${escapeHtml(sellerStatus.label)}</span> ${escapeHtml(sellerStatus.detail)}</div>` : '';
-  return `<section class="card"><div class="card-title"><h3>${c.id ? 'Editar cliente' : 'Novo cliente'}</h3></div>${assignmentStatus}<input type="hidden" id="cliente-id" value="${escapeHtml(c.id || '')}"><label>Razao social / Nome<input id="cliente-nome" value="${escapeHtml(c.nome || c.razaoSocial || '')}"></label><div class="form-row"><label>CNPJ<input id="cliente-cnpj" value="${escapeHtml(c.cnpj || c.doc || '')}"></label><label>Telefone<input id="cliente-telefone" value="${escapeHtml(c.telefone || c.tel || '')}"></label></div><div class="form-row"><label>Cidade<input id="cliente-cidade" value="${escapeHtml(c.cidade || '')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado || '')}"></label></div><div class="form-row"><label>Vendedor responsavel<select id="cliente-vendedor"><option value="">Selecione um vendedor</option>${vendedorOptions}</select></label><label>Status<select id="cliente-status"><option value="ativo" ${c.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${c.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-client>Salvar cliente</button>${c.id ? '<button type="button" class="btn" data-new-client>Novo cliente</button>' : ''}</div></section>`;
+  const term = normalize…1164 tokens truncated…Html(c.cidade || '')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado || '')}"></label></div><div class="form-row"><label>Vendedor responsavel<select id="cliente-vendedor"><option value="">Selecione um vendedor</option>${vendedorOptions}</select></label><label>Status<select id="cliente-status"><option value="ativo" ${c.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${c.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-client>Salvar cliente</button>${c.id ? '<button type="button" class="btn" data-new-client>Novo cliente</button>' : ''}</div></section>`;
 }
 
 function orderList(list) {
@@ -625,7 +624,7 @@ function bindPageEvents() {
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
   $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
-  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_SETTINGS_DEFAULTS, ...state.companySettings }));
+  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_PDF_DEFAULTS, ...state.companyPdfSettings }));
   $('[data-save-company]')?.addEventListener('click', saveCompanySettings);
   $('#empresa-logo-file')?.addEventListener('change', previewCompanyLogo);
   $('[data-remove-company-logo]')?.addEventListener('click', () => setCompanyLogo(''));
@@ -643,7 +642,7 @@ function bindPageEvents() {
 }
 
 function setCompanyLogo(dataUrl) {
-  state.companySettings = { ...state.companySettings, logoDataUrl: dataUrl };
+  state.companyLogoDraft = dataUrl;
   const preview = $('#empresa-logo-preview');
   if (preview) preview.innerHTML = dataUrl ? `<img src="${escapeHtml(dataUrl)}" alt="Prévia da logo">` : '<span>Logo da empresa</span>';
   const input = $('#empresa-logo-file');
@@ -653,30 +652,73 @@ function setCompanyLogo(dataUrl) {
 function previewCompanyLogo(event) {
   const file = event.currentTarget.files?.[0];
   if (!file) return;
-  if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 500 * 1024) {
+  if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > MAX_LOGO_FILE_BYTES) {
     toast('Selecione uma imagem PNG ou JPG de até 500 KB.');
     event.currentTarget.value = '';
     return;
   }
   const reader = new FileReader();
-  reader.onload = () => setCompanyLogo(String(reader.result || ''));
+  const input = event.currentTarget;
+  reader.onload = () => {
+    const dataUrl = String(reader.result || '');
+    if (dataUrl.length > MAX_LOGO_DATA_URL_CHARS) {
+      toast('A imagem codificada excede o limite seguro para salvar. Selecione uma imagem menor.');
+      input.value = '';
+      return;
+    }
+    setCompanyLogo(dataUrl);
+  };
   reader.onerror = () => toast('Não foi possível carregar a imagem.');
   reader.readAsDataURL(file);
 }
 
 async function saveCompanySettings() {
   if (!isAdmin()) return toast('Somente o administrador pode salvar as configurações.');
-  const fields = Object.keys(COMPANY_SETTINGS_DEFAULTS).filter(key => key !== 'logoDataUrl' && key !== 'pdfRodape');
-  const settings = Object.fromEntries(fields.map(key => [key, $(`#empresa-${key}`)?.value.trim() || '']));
-  settings.logoDataUrl = state.companySettings.logoDataUrl || '';
-  settings.pdfRodape = $('#empresa-pdfRodape')?.value.trim() || '';
+  if (state.companySettingsLoad.company !== 'ready' || state.companySettingsLoad.pdf !== 'ready') {
+    return toast('Aguarde o carregamento das configurações antes de salvar.');
+  }
+  const readFields = (limits, prefix = 'empresa-') => {
+    const values = {};
+    for (const [key, max] of Object.entries(limits)) {
+      const input = $(`#${prefix}${key}`);
+      const value = input?.value.trim() || '';
+      if (value.length > max) {
+        toast(`${key === 'pdfRodape' ? 'Rodapé do PDF' : input?.labels?.[0]?.textContent || key} excede o limite de ${max} caracteres.`);
+        input?.focus();
+        return null;
+      }
+      values[key] = value;
+    }
+    return values;
+  };
+  const settings = readFields(COMPANY_FIELD_LIMITS);
+  const pdfSettings = readFields(COMPANY_PDF_FIELD_LIMITS);
+  if (!settings || !pdfSettings) return;
+  const logoDataUrl = state.companyLogoDraft ?? state.companyPdfSettings.logoDataUrl ?? state.companySettings.logoDataUrl ?? '';
+  if (logoDataUrl.length > MAX_LOGO_DATA_URL_CHARS) {
+    return toast('A logo excede o limite seguro de armazenamento. Selecione uma imagem menor.');
+  }
+  pdfSettings.logoDataUrl = logoDataUrl;
+  const estimatedBytes = value => new TextEncoder().encode(JSON.stringify(value)).length + 64 * 1024;
+  if (estimatedBytes(settings) > MAX_SETTINGS_DOCUMENT_BYTES || estimatedBytes(pdfSettings) > MAX_SETTINGS_DOCUMENT_BYTES) {
+    return toast('Os dados da empresa excedem o limite seguro do documento. Reduza o tamanho dos campos ou da logo.');
+  }
   try {
-    await fb.setDoc(ref('configuracoes', 'empresa'), settings, { merge: true });
+    const batch = fb.writeBatch(db);
+    batch.set(ref('configuracoes', 'empresa'), settings, { merge: true });
+    batch.set(ref('configuracoes', 'empresaPdf'), pdfSettings);
+    await batch.commit();
     state.companySettings = { ...state.companySettings, ...settings };
+    state.companyPdfSettings = { ...state.companyPdfSettings, ...pdfSettings };
+    state.companyLogoDraft = null;
     toast('Configurações da empresa salvas.');
   } catch (err) {
     console.error(err);
-    toast(`Não foi possível salvar as configurações: ${err.message}`);
+    if (['invalid-argument', 'resource-exhausted'].includes(err.code) || /document.*(size|large)|too large/i.test(err.message || '')) {
+      toast('Não foi possível salvar: os dados excedem o limite do Firestore. Reduza o tamanho da logo ou dos campos.');
+    } else {
+      toast(`Não foi possível salvar as configurações. Seus dados continuam no formulário. ${err.message}`);
+    }
   }
 }
 
@@ -685,7 +727,7 @@ function bindOrderButtons() {
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
   $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
-  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_SETTINGS_DEFAULTS, ...state.companySettings }));
+  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_PDF_DEFAULTS, ...state.companyPdfSettings }));
 }
 
 function bindStartOrderButtons() {

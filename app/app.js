@@ -747,7 +747,7 @@ async function saveCompanySettings() {
   const settings = readFields(COMPANY_FIELD_LIMITS);
   const pdfSettings = readFields(COMPANY_PDF_FIELD_LIMITS);
   if (!settings || !pdfSettings) return;
-  const logoDataUrl = state.companyLogoDraft ?? state.companyPdfSettings.logoDataUrl ?? state.companySettings.logoDataUrl ?? '';
+  const logoDataUrl = state.companyLogoDraft ?? state.companyPdfSettings.logoDataUrl ?? '';
   if (logoDataUrl.length > MAX_LOGO_DATA_URL_CHARS) {
     return toast('A logo excede o limite seguro de armazenamento. Selecione uma imagem menor.');
   }

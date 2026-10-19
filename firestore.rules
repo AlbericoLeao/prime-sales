@@ -26,7 +26,7 @@ service cloud.firestore {
         ]) &&
         data.pdfNomeExibido is string && data.pdfNomeExibido.size() <= 120 &&
         data.pdfTextoAbaixoLogo is string && data.pdfTextoAbaixoLogo.size() <= 200 &&
-        data.logoDataUrl is string && data.logoDataUrl.size() <= 700000 &&
+        data.logoDataUrl is string && data.logoDataUrl.size() <= 682691 &&
         (data.logoDataUrl == '' || data.logoDataUrl.matches('data:image/(png|jpeg);base64,[A-Za-z0-9+/]*={0,2}')) &&
         data.pdfContatoExibido is string && data.pdfContatoExibido.size() <= 250 &&
         data.pdfRodape is string && data.pdfRodape.size() <= 600;

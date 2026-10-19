@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 16164)
-Total output lines: 1189
-
 import { auth, db, fb, col, ref } from './firebase-service.js';
 import { $, $$, money, tsMs, formatDate, escapeHtml, toast } from './utils.js';
 import { gerarPedidoPDF } from './pdf.js';
@@ -536,7 +533,63 @@ function filteredAdminProducts() {
 }
 
 function filteredAdminClients() {
-  const term = normalize…1164 tokens truncated…Html(c.cidade || '')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado || '')}"></label></div><div class="form-row"><label>Vendedor responsavel<select id="cliente-vendedor"><option value="">Selecione um vendedor</option>${vendedorOptions}</select></label><label>Status<select id="cliente-status"><option value="ativo" ${c.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${c.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-client>Salvar cliente</button>${c.id ? '<button type="button" class="btn" data-new-client>Novo cliente</button>' : ''}</div></section>`;
+  const term = normalizeSearch(state.adminClienteBusca);
+  if (!term) return state.clientes;
+  return state.clientes.filter(c => {
+    const vendedor = sellerForClient(c) || {};
+    const sellerStatus = clientSellerStatus(c);
+    return [
+      c.nome,
+      c.razaoSocial,
+      c.fantasia,
+      c.nomeFantasia,
+      c.cnpj,
+      c.doc,
+      c.telefone,
+      c.tel,
+      c.cidade,
+      c.estado,
+      c.vendedorNome,
+      c.vendedorEmail,
+      sellerStatus.label,
+      sellerStatus.detail,
+      vendedor.nome,
+      vendedor.email,
+      vendedor.id
+    ].some(value => normalizeSearch(value).includes(term));
+  });
+}
+
+function searchedProducts() {
+  const term = state.catalogoBusca.trim().toLowerCase();
+  const products = activeProducts();
+  if (!term) return products;
+  return products.filter(p => [p.nome, p.codigo, p.ref, p.marca, p.descricao].some(value => String(value || '').toLowerCase().includes(term)));
+}
+
+function productCard(p, admin) {
+  const id = p.id;
+  const qty = state.cart[id]?.qty || 0;
+  const price = Number(p.preco || 0);
+  const subtotal = price * qty;
+  return `<article class="product-card"><div><div class="row-top"><div><div class="product-name">${escapeHtml(p.nome || 'Sem nome')}</div><div class="product-meta">${escapeHtml(productCode(p))} · ${escapeHtml(p.marca || 'Sem marca')} · Estoque ${Number(p.estoque || 0)}</div></div><div class="price">${money(price)}</div></div>${p.descricao ? `<div class="row-sub">${escapeHtml(p.descricao)}</div>` : ''}</div>${admin ? `<div class="actions"><button type="button" class="btn small" data-edit-product="${id}">Editar</button></div>` : `<div><div class="qty"><button type="button" data-qty="${id}" data-delta="-1">−</button><span>${qty}</span><button type="button" data-qty="${id}" data-delta="1">+</button></div><div class="row-sub">Desconto fixo: 0%</div><div class="row-top"><span class="row-sub">Subtotal</span><strong>${money(subtotal)}</strong></div></div>`}</article>`;
+}
+
+function produtoForm() {
+  const p = state.productEditId ? state.produtos.find(prod => prod.id === state.productEditId) || {} : {};
+  return `<section class="card"><div class="card-title"><h3>${p.id ? 'Editar produto' : 'Novo produto'}</h3></div><input type="hidden" id="prod-id" value="${escapeHtml(p.id || '')}"><div class="form-row"><label>Código<input id="prod-codigo" value="${escapeHtml(p.codigo || p.ref || '')}"></label><label>Nome<input id="prod-nome" value="${escapeHtml(p.nome || '')}"></label></div><div class="form-row"><label>Marca<input id="prod-marca" value="${escapeHtml(p.marca || '')}"></label><label>Preço<input id="prod-preco" type="number" min="0" step="0.01" value="${Number(p.preco || 0)}"></label></div><div class="form-row"><label>Estoque<input id="prod-estoque" type="number" min="0" value="${Number(p.estoque || 0)}"></label><label>Status<select id="prod-status"><option value="ativo" ${p.ativo === false || isInactiveStatus(p.status) ? '' : 'selected'}>Ativo</option><option value="inativo" ${p.ativo === false || isInactiveStatus(p.status) ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-product>Salvar produto</button>${p.id ? '<button type="button" class="btn" data-new-product>Novo produto</button>' : ''}</div></section>`;
+}
+
+function clienteForm() {
+  const c = state.clientEditId ? state.clientes.find(cli => cli.id === state.clientEditId) || {} : {};
+  const currentSellerEmail = sellerEmail({ email: c.vendedorEmail });
+  const vendedorOptions = state.vendedores.map(v => {
+    const email = sellerEmail(v);
+    return `<option value="${escapeHtml(email)}" ${currentSellerEmail === email ? 'selected' : ''}>${escapeHtml(`${sellerName(v)} (${email})`)}</option>`;
+  }).join('');
+  const sellerStatus = clientSellerStatus(c);
+  const assignmentStatus = c.id ? `<div class="row-sub"><span class="badge ${sellerStatus.badge}">${escapeHtml(sellerStatus.label)}</span> ${escapeHtml(sellerStatus.detail)}</div>` : '';
+  return `<section class="card"><div class="card-title"><h3>${c.id ? 'Editar cliente' : 'Novo cliente'}</h3></div>${assignmentStatus}<input type="hidden" id="cliente-id" value="${escapeHtml(c.id || '')}"><label>Razao social / Nome<input id="cliente-nome" value="${escapeHtml(c.nome || c.razaoSocial || '')}"></label><div class="form-row"><label>CNPJ<input id="cliente-cnpj" value="${escapeHtml(c.cnpj || c.doc || '')}"></label><label>Telefone<input id="cliente-telefone" value="${escapeHtml(c.telefone || c.tel || '')}"></label></div><div class="form-row"><label>Cidade<input id="cliente-cidade" value="${escapeHtml(c.cidade || '')}"></label><label>Estado<input id="cliente-estado" maxlength="2" value="${escapeHtml(c.estado || '')}"></label></div><div class="form-row"><label>Vendedor responsavel<select id="cliente-vendedor"><option value="">Selecione um vendedor</option>${vendedorOptions}</select></label><label>Status<select id="cliente-status"><option value="ativo" ${c.status === 'inativo' ? '' : 'selected'}>Ativo</option><option value="inativo" ${c.status === 'inativo' ? 'selected' : ''}>Inativo</option></select></label></div><div class="actions"><button type="button" class="btn primary" data-save-client>Salvar cliente</button>${c.id ? '<button type="button" class="btn" data-new-client>Novo cliente</button>' : ''}</div></section>`;
 }
 
 function orderList(list) {
@@ -1133,4 +1186,3 @@ async function onAuth(user) {
 }
 
 boot();
-

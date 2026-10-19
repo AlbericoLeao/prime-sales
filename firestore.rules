@@ -17,9 +17,28 @@ service cloud.firestore {
       return isSignedIn() && emailField != null && emailField.lower() == emailOf();
     }
 
+    function validCompanyPdf() {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+          'pdfNomeExibido', 'pdfTextoAbaixoLogo', 'logoDataUrl', 'pdfContatoExibido', 'pdfRodape'
+        ]) && data.keys().hasOnly([
+          'pdfNomeExibido', 'pdfTextoAbaixoLogo', 'logoDataUrl', 'pdfContatoExibido', 'pdfRodape'
+        ]) &&
+        data.pdfNomeExibido is string && data.pdfNomeExibido.size() <= 120 &&
+        data.pdfTextoAbaixoLogo is string && data.pdfTextoAbaixoLogo.size() <= 200 &&
+        data.logoDataUrl is string && data.logoDataUrl.size() <= 700000 &&
+        (data.logoDataUrl == '' || data.logoDataUrl.matches('data:image/(png|jpeg);base64,[A-Za-z0-9+/]*={0,2}')) &&
+        data.pdfContatoExibido is string && data.pdfContatoExibido.size() <= 250 &&
+        data.pdfRodape is string && data.pdfRodape.size() <= 600;
+    }
+
     match /configuracoes/{configId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow get: if isAdmin() || (isSignedIn() && configId == 'empresaPdf');
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && (
+        configId == 'empresa' || (configId == 'empresaPdf' && validCompanyPdf())
+      );
+      allow delete: if isAdmin() && configId in ['empresa', 'empresaPdf'];
     }
 
     match /vendedores/{email} {
@@ -78,3 +97,4 @@ service cloud.firestore {
     }
   }
 }
+

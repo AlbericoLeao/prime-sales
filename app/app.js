@@ -25,6 +25,7 @@ const state = {
   productEditId: '',
   clientEditId: '',
   sellerEditId: '',
+  companySettings: {},
   accessBlocked: false
 };
 
@@ -37,7 +38,13 @@ const STATUS = {
   cancelado: 'Cancelado'
 };
 const ADMIN_EMAILS = ['albericoprestes2014@gmail.com'];
-const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['vendedores','👤','Vendedores'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos']];
+const COMPANY_SETTINGS_DEFAULTS = {
+  nomeEmpresa: 'Prime Representações', nomeFantasia: 'Prime Sales', cnpj: '', representante: '',
+  telefone: '', whatsapp: '', emailComercial: '', site: '', endereco: '', cidade: '', estado: '',
+  logoDataUrl: '', pdfNomeExibido: 'Prime Representações',
+  pdfTextoAbaixoLogo: 'Pedido comercial gerado pelo Prime Sales', pdfContatoExibido: '', pdfRodape: ''
+};
+const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['vendedores','👤','Vendedores'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos'], ['empresa','🏢','Minha Empresa']];
 const VEND_NAV = [['carteira','👥','Carteira'], ['catalogo','📦','Catálogo'], ['meus','📋','Pedidos']];
 
 function roleOf(user) {
@@ -113,6 +120,7 @@ function resetSessionState() {
   state.productEditId = '';
   state.clientEditId = '';
   state.sellerEditId = '';
+  state.companySettings = {};
   state.accessBlocked = false;
   $('#content').innerHTML = '';
   $('#main-nav').innerHTML = '';
@@ -200,6 +208,7 @@ function closeMenu() {
 
 function setPage(page) {
   if (state.accessBlocked) { showBlockedAccess(); return; }
+  if (page === 'empresa' && !isAdmin()) return;
   if (page === 'carteira') state.clienteFiltro = '';
   state.page = page;
   $('#page-subtitle').textContent = navItems().find(item => item[0] === page)?.[2] || 'Prime Sales';
@@ -234,6 +243,7 @@ function startListeners() {
     return;
   }
   if (isAdmin()) {
+    listenDoc(ref('configuracoes', 'empresa'), doc => { state.companySettings = doc; rerender(); });
     listen(fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
     listen(col('clientes'), docs => { state.clientes = docs.sort(byName); rerender(); });
     listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
@@ -241,6 +251,7 @@ function startListeners() {
     return;
   }
   if (!isVend()) return;
+  listenDoc(ref('configuracoes', 'empresa'), doc => { state.companySettings = doc; rerender(); });
   const email = currentUserEmail();
   listen(fb.query(col('pedidos'), fb.where('vendedorEmail', '==', email)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
   listen(fb.query(col('clientes'), fb.where('vendedorEmail', '==', email)), docs => { state.clientes = docs.sort(byName); rerender(); });
@@ -278,6 +289,7 @@ function renderPage() {
     vendedores: renderAdminVendedores,
     clientes: renderAdminClientes,
     produtos: renderAdminProdutos,
+    empresa: renderMinhaEmpresa,
     carteira: renderCarteira,
     catalogo: renderCatalogo,
     meus: renderMeusPedidos
@@ -364,6 +376,31 @@ function renderAdminProdutos() {
   return head('Produtos', 'Produtos ativos disponíveis no catálogo.') + produtoForm() +
     `<section class="card"><label>Buscar produto<input id="admin-product-search" placeholder="Código, nome, descrição, marca ou status" value="${escapeHtml(state.adminProdutoBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-product-search>Limpar busca</button></div></section>` +
     `<div id="admin-product-list">${productList(filteredAdminProducts(), true)}</div>`;
+}
+
+function companyValue(key) {
+  return escapeHtml(state.companySettings[key] ?? COMPANY_SETTINGS_DEFAULTS[key] ?? '');
+}
+
+function renderMinhaEmpresa() {
+  if (!isAdmin()) return head('Acesso restrito', 'Somente administradores podem editar as configurações da empresa.');
+  const logo = state.companySettings.logoDataUrl
+    ? `<img src="${escapeHtml(state.companySettings.logoDataUrl)}" alt="Prévia da logo">`
+    : '<span>Logo da empresa</span>';
+  const field = (key, label, attrs = '') => `<label>${label}<input id="empresa-${key}" value="${companyValue(key)}" ${attrs}></label>`;
+  return `${head('Minha Empresa', 'Dados usados na identificação comercial e nos PDFs dos pedidos.')}` +
+    `<section class="card company-settings"><div class="card-title"><h3>Dados da empresa</h3></div>` +
+    `<div class="form-row">${field('nomeEmpresa', 'Nome da empresa')}${field('nomeFantasia', 'Nome fantasia')}</div>` +
+    `<div class="form-row">${field('cnpj', 'CNPJ')}${field('representante', 'Representante responsável')}</div>` +
+    `<div class="form-row">${field('telefone', 'Telefone')}${field('whatsapp', 'WhatsApp')}</div>` +
+    `<div class="form-row">${field('emailComercial', 'E-mail comercial', 'type="email"')}${field('site', 'Site', 'type="url"')}</div>` +
+    `${field('endereco', 'Endereço')}` +
+    `<div class="form-row">${field('cidade', 'Cidade')}${field('estado', 'Estado', 'maxlength="2"')}</div></section>` +
+    `<section class="card company-settings"><div class="card-title"><h3>Logo</h3></div><div class="company-logo-row"><div class="company-logo-preview" id="empresa-logo-preview">${logo}</div><div><label>Selecionar imagem<input id="empresa-logo-file" type="file" accept="image/png,image/jpeg"></label><div class="row-sub">PNG ou JPG; até 500 KB.</div><button class="btn small" type="button" data-remove-company-logo>Remover logo</button></div></div></section>` +
+    `<section class="card company-settings"><div class="card-title"><h3>Identificação no PDF</h3></div>` +
+    `<div class="form-row">${field('pdfNomeExibido', 'Nome exibido no PDF')}${field('pdfContatoExibido', 'Contato exibido no PDF')}</div>` +
+    `${field('pdfTextoAbaixoLogo', 'Texto abaixo da logo')}<label>Rodapé do PDF<textarea id="empresa-pdfRodape" rows="3">${companyValue('pdfRodape')}</textarea></label></section>` +
+    `<div class="company-settings-actions"><button type="button" class="btn primary" data-save-company>Salvar configurações</button></div>`;
 }
 
 function renderCarteira() {
@@ -588,7 +625,10 @@ function bindPageEvents() {
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
   $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
-  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
+  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_SETTINGS_DEFAULTS, ...state.companySettings }));
+  $('[data-save-company]')?.addEventListener('click', saveCompanySettings);
+  $('#empresa-logo-file')?.addEventListener('change', previewCompanyLogo);
+  $('[data-remove-company-logo]')?.addEventListener('click', () => setCompanyLogo(''));
   $$('[data-edit-product]').forEach(btn => btn.onclick = () => { state.productEditId = btn.dataset.editProduct; renderPage(); });
   $('[data-new-product]')?.addEventListener('click', () => { state.productEditId = ''; renderPage(); });
   $('[data-save-product]')?.addEventListener('click', saveProduct);
@@ -602,12 +642,50 @@ function bindPageEvents() {
   $$('[data-reactivate-seller]').forEach(btn => btn.onclick = () => reactivateSellerAccess(btn.dataset.reactivateSeller));
 }
 
+function setCompanyLogo(dataUrl) {
+  state.companySettings = { ...state.companySettings, logoDataUrl: dataUrl };
+  const preview = $('#empresa-logo-preview');
+  if (preview) preview.innerHTML = dataUrl ? `<img src="${escapeHtml(dataUrl)}" alt="Prévia da logo">` : '<span>Logo da empresa</span>';
+  const input = $('#empresa-logo-file');
+  if (input) input.value = '';
+}
+
+function previewCompanyLogo(event) {
+  const file = event.currentTarget.files?.[0];
+  if (!file) return;
+  if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 500 * 1024) {
+    toast('Selecione uma imagem PNG ou JPG de até 500 KB.');
+    event.currentTarget.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => setCompanyLogo(String(reader.result || ''));
+  reader.onerror = () => toast('Não foi possível carregar a imagem.');
+  reader.readAsDataURL(file);
+}
+
+async function saveCompanySettings() {
+  if (!isAdmin()) return toast('Somente o administrador pode salvar as configurações.');
+  const fields = Object.keys(COMPANY_SETTINGS_DEFAULTS).filter(key => key !== 'logoDataUrl' && key !== 'pdfRodape');
+  const settings = Object.fromEntries(fields.map(key => [key, $(`#empresa-${key}`)?.value.trim() || '']));
+  settings.logoDataUrl = state.companySettings.logoDataUrl || '';
+  settings.pdfRodape = $('#empresa-pdfRodape')?.value.trim() || '';
+  try {
+    await fb.setDoc(ref('configuracoes', 'empresa'), settings, { merge: true });
+    state.companySettings = { ...state.companySettings, ...settings };
+    toast('Configurações da empresa salvas.');
+  } catch (err) {
+    console.error(err);
+    toast(`Não foi possível salvar as configurações: ${err.message}`);
+  }
+}
+
 function bindOrderButtons() {
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
   $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
-  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
+  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_SETTINGS_DEFAULTS, ...state.companySettings }));
 }
 
 function bindStartOrderButtons() {
@@ -1013,3 +1091,4 @@ async function onAuth(user) {
 }
 
 boot();
+

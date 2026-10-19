@@ -17,6 +17,11 @@ service cloud.firestore {
       return isSignedIn() && emailField != null && emailField.lower() == emailOf();
     }
 
+    match /configuracoes/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     match /vendedores/{email} {
       allow get: if isSignedIn() && (isAdmin() || emailOf() == email.lower());
       allow list: if isSignedIn() && isAdmin();

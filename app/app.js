@@ -59,7 +59,7 @@ const COMPANY_PDF_FIELD_LIMITS = {
   pdfNomeExibido: 120, pdfTextoAbaixoLogo: 200, pdfContatoExibido: 250, pdfRodape: 600
 };
 const MAX_LOGO_FILE_BYTES = 500 * 1024;
-const MAX_LOGO_DATA_URL_CHARS = 700000;
+const MAX_LOGO_DATA_URL_CHARS = 682691;
 const MAX_SETTINGS_DOCUMENT_BYTES = 850 * 1024;
 const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['vendedores','👤','Vendedores'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos'], ['empresa','🏢','Minha Empresa']];
 const VEND_NAV = [['carteira','👥','Carteira'], ['catalogo','📦','Catálogo'], ['meus','📋','Pedidos']];

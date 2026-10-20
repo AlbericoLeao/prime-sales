@@ -9,21 +9,36 @@ function firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null);
 }
 
-export function gerarPedidoPDF(pedido) {
+const PDF_DEFAULTS = {
+  pdfNomeExibido: 'Prime Representações',
+  pdfTextoAbaixoLogo: 'Pedido comercial gerado pelo Prime Sales',
+  pdfContatoExibido: '',
+  pdfRodape: '',
+  logoDataUrl: ''
+};
+
+export function gerarPedidoPDF(pedido, company = {}) {
   if (!pedido) throw new Error('Pedido não informado para geração do PDF.');
   const jsPDF = window.jspdf?.jsPDF;
   if (!jsPDF) throw new Error('Biblioteca jsPDF não carregada.');
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
   const margin = 42;
   let y = 46;
-  pdf.setFillColor(245, 168, 0);
-  pdf.roundedRect(margin, y - 20, 54, 54, 12, 12, 'F');
+  const settings = { ...PDF_DEFAULTS, ...company };
+  if (settings.logoDataUrl && /^data:image\/(png|jpeg);base64,/i.test(settings.logoDataUrl)) {
+    try { pdf.addImage(settings.logoDataUrl, settings.logoDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG', margin, y - 20, 54, 54); }
+    catch { pdf.setFillColor(245, 168, 0); pdf.roundedRect(margin, y - 20, 54, 54, 12, 12, 'F'); }
+  } else {
+    pdf.setFillColor(245, 168, 0);
+    pdf.roundedRect(margin, y - 20, 54, 54, 12, 12, 'F');
+  }
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(18);
-  pdf.text('Prime Representações', margin + 68, y);
+  pdf.text(String(settings.pdfNomeExibido || PDF_DEFAULTS.pdfNomeExibido), margin + 68, y);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(10);
-  pdf.text('Pedido comercial gerado pelo Prime Sales', margin + 68, y + 16);
+  pdf.text(String(settings.pdfTextoAbaixoLogo || PDF_DEFAULTS.pdfTextoAbaixoLogo), margin + 68, y + 16);
+  if (settings.pdfContatoExibido) pdf.text(String(settings.pdfContatoExibido), margin + 68, y + 31);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(13);
   pdf.text(`Pedido #${String(pedido.numero || pedido.id || '').slice(-8).toUpperCase()}`, margin, y + 76);
@@ -66,5 +81,16 @@ export function gerarPedidoPDF(pedido) {
   pdf.setFontSize(10); pdf.text('Observações Comerciais', margin, y); y += 14;
   pdf.setFont('helvetica', 'normal');
   pdf.text(pdf.splitTextToSize(pedido.observacoes || '—', 510), margin, y);
+  if (settings.pdfRodape) {
+    const footerLines = pdf.splitTextToSize(String(settings.pdfRodape), 510);
+    for (let page = 1; page <= pdf.getNumberOfPages(); page += 1) {
+      pdf.setPage(page);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(8);
+      pdf.setTextColor(100);
+      pdf.text(footerLines, margin, 802, { align: 'left' });
+    }
+  }
   pdf.save(`prime-sales-pedido-${String(pedido.numero || pedido.id || 'pedido').slice(-8)}.pdf`);
 }
+

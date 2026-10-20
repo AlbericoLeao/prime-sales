@@ -25,6 +25,10 @@ const state = {
   productEditId: '',
   clientEditId: '',
   sellerEditId: '',
+  companySettings: {},
+  companyPdfSettings: {},
+  companyLogoDraft: null,
+  companySettingsLoad: { company: 'idle', pdf: 'idle' },
   accessBlocked: false
 };
 
@@ -37,7 +41,27 @@ const STATUS = {
   cancelado: 'Cancelado'
 };
 const ADMIN_EMAILS = ['albericoprestes2014@gmail.com'];
-const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['vendedores','👤','Vendedores'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos']];
+const COMPANY_SETTINGS_DEFAULTS = {
+  nomeEmpresa: 'Prime Representações', nomeFantasia: 'Prime Sales', cnpj: '', representante: '',
+  telefone: '', whatsapp: '', emailComercial: '', site: '', endereco: '', cidade: '', estado: ''
+};
+const COMPANY_PDF_DEFAULTS = {
+  pdfNomeExibido: 'Prime Representações',
+  pdfTextoAbaixoLogo: 'Pedido comercial gerado pelo Prime Sales',
+  logoDataUrl: '', pdfContatoExibido: '', pdfRodape: ''
+};
+const COMPANY_FIELD_LIMITS = {
+  nomeEmpresa: 120, nomeFantasia: 120, cnpj: 18, representante: 120,
+  telefone: 30, whatsapp: 30, emailComercial: 254, site: 2048,
+  endereco: 240, cidade: 100, estado: 2
+};
+const COMPANY_PDF_FIELD_LIMITS = {
+  pdfNomeExibido: 120, pdfTextoAbaixoLogo: 200, pdfContatoExibido: 250, pdfRodape: 600
+};
+const MAX_LOGO_FILE_BYTES = 500 * 1024;
+const MAX_LOGO_DATA_URL_CHARS = 682691;
+const MAX_SETTINGS_DOCUMENT_BYTES = 850 * 1024;
+const ADMIN_NAV = [['pedidos','📋','Pedidos'], ['vendedores','👤','Vendedores'], ['clientes','👥','Clientes'], ['produtos','📦','Produtos'], ['empresa','🏢','Minha Empresa']];
 const VEND_NAV = [['carteira','👥','Carteira'], ['catalogo','📦','Catálogo'], ['meus','📋','Pedidos']];
 
 function roleOf(user) {
@@ -113,6 +137,10 @@ function resetSessionState() {
   state.productEditId = '';
   state.clientEditId = '';
   state.sellerEditId = '';
+  state.companySettings = {};
+  state.companyPdfSettings = {};
+  state.companyLogoDraft = null;
+  state.companySettingsLoad = { company: 'idle', pdf: 'idle' };
   state.accessBlocked = false;
   $('#content').innerHTML = '';
   $('#main-nav').innerHTML = '';
@@ -200,6 +228,7 @@ function closeMenu() {
 
 function setPage(page) {
   if (state.accessBlocked) { showBlockedAccess(); return; }
+  if (page === 'empresa' && !isAdmin()) return;
   if (page === 'carteira') state.clienteFiltro = '';
   state.page = page;
   $('#page-subtitle').textContent = navItems().find(item => item[0] === page)?.[2] || 'Prime Sales';
@@ -226,6 +255,31 @@ function listenDoc(source, callback) {
   state.unsubs.push(unsub);
 }
 
+function listenSettingsDoc(docId, stateKey) {
+  const loadKey = stateKey === 'companySettings' ? 'company' : 'pdf';
+  const clearValue = status => {
+    state[stateKey] = {};
+    state.companySettingsLoad[loadKey] = status;
+    if (stateKey === 'companyPdfSettings') state.companyLogoDraft = null;
+    if (state.user) rerender();
+  };
+  try {
+    const unsub = fb.onSnapshot(ref('configuracoes', docId), snap => {
+      state[stateKey] = snap.exists() ? { id: snap.id, ...snap.data() } : {};
+      state.companySettingsLoad[loadKey] = 'ready';
+      if (!snap.exists() && stateKey === 'companyPdfSettings') state.companyLogoDraft = null;
+      if (state.user) rerender();
+    }, err => {
+      clearValue('error');
+      toast(`Erro ao carregar configurações da empresa: ${err.message}`);
+    });
+    state.unsubs.push(unsub);
+  } catch (err) {
+    clearValue('error');
+    toast(`Erro ao carregar configurações da empresa: ${err.message}`);
+  }
+}
+
 function startListeners() {
   state.unsubs.forEach(unsub => unsub());
   state.unsubs = [];
@@ -234,6 +288,8 @@ function startListeners() {
     return;
   }
   if (isAdmin()) {
+    listenSettingsDoc('empresa', 'companySettings');
+    listenSettingsDoc('empresaPdf', 'companyPdfSettings');
     listen(fb.query(col('pedidos'), fb.orderBy('criadoEm', 'desc')), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
     listen(col('clientes'), docs => { state.clientes = docs.sort(byName); rerender(); });
     listen(col('produtos'), docs => { state.produtos = docs.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); rerender(); });
@@ -241,6 +297,7 @@ function startListeners() {
     return;
   }
   if (!isVend()) return;
+  listenSettingsDoc('empresaPdf', 'companyPdfSettings');
   const email = currentUserEmail();
   listen(fb.query(col('pedidos'), fb.where('vendedorEmail', '==', email)), docs => { state.pedidos = docs.filter(p => p.status !== 'rascunho').sort(byCreatedDesc); rerender(); });
   listen(fb.query(col('clientes'), fb.where('vendedorEmail', '==', email)), docs => { state.clientes = docs.sort(byName); rerender(); });
@@ -278,6 +335,7 @@ function renderPage() {
     vendedores: renderAdminVendedores,
     clientes: renderAdminClientes,
     produtos: renderAdminProdutos,
+    empresa: renderMinhaEmpresa,
     carteira: renderCarteira,
     catalogo: renderCatalogo,
     meus: renderMeusPedidos
@@ -364,6 +422,37 @@ function renderAdminProdutos() {
   return head('Produtos', 'Produtos ativos disponíveis no catálogo.') + produtoForm() +
     `<section class="card"><label>Buscar produto<input id="admin-product-search" placeholder="Código, nome, descrição, marca ou status" value="${escapeHtml(state.adminProdutoBusca)}"></label><div class="actions" style="margin-top:10px"><button type="button" class="btn small" data-clear-admin-product-search>Limpar busca</button></div></section>` +
     `<div id="admin-product-list">${productList(filteredAdminProducts(), true)}</div>`;
+}
+
+function companyValue(key) {
+  const fromPdfDoc = Object.hasOwn(COMPANY_PDF_DEFAULTS, key);
+  const settings = fromPdfDoc ? state.companyPdfSettings : state.companySettings;
+  return escapeHtml(settings[key] ?? (fromPdfDoc ? COMPANY_PDF_DEFAULTS[key] : COMPANY_SETTINGS_DEFAULTS[key]) ?? '');
+}
+
+function renderMinhaEmpresa() {
+  if (!isAdmin()) return head('Acesso restrito', 'Somente administradores podem editar as configurações da empresa.');
+  const logoDataUrl = state.companyLogoDraft ?? state.companyPdfSettings.logoDataUrl ?? '';
+  const logo = logoDataUrl
+    ? `<img src="${escapeHtml(logoDataUrl)}" alt="Prévia da logo">`
+    : '<span>Logo da empresa</span>';
+  const field = (key, label, attrs = '') => {
+    const maxLength = COMPANY_FIELD_LIMITS[key] ?? COMPANY_PDF_FIELD_LIMITS[key];
+    return `<label>${label}<input id="empresa-${key}" value="${companyValue(key)}" maxlength="${maxLength}" ${attrs}></label>`;
+  };
+  return `${head('Minha Empresa', 'Dados usados na identificação comercial e nos PDFs dos pedidos.')}` +
+    `<section class="card company-settings"><div class="card-title"><h3>Dados da empresa</h3></div>` +
+    `<div class="form-row">${field('nomeEmpresa', 'Nome da empresa')}${field('nomeFantasia', 'Nome fantasia')}</div>` +
+    `<div class="form-row">${field('cnpj', 'CNPJ')}${field('representante', 'Representante responsável')}</div>` +
+    `<div class="form-row">${field('telefone', 'Telefone')}${field('whatsapp', 'WhatsApp')}</div>` +
+    `<div class="form-row">${field('emailComercial', 'E-mail comercial', 'type="email"')}${field('site', 'Site', 'type="url"')}</div>` +
+    `${field('endereco', 'Endereço')}` +
+    `<div class="form-row">${field('cidade', 'Cidade')}${field('estado', 'Estado', 'maxlength="2"')}</div></section>` +
+    `<section class="card company-settings"><div class="card-title"><h3>Logo</h3></div><div class="company-logo-row"><div class="company-logo-preview" id="empresa-logo-preview">${logo}</div><div><label>Selecionar imagem<input id="empresa-logo-file" type="file" accept="image/png,image/jpeg"></label><div class="row-sub">PNG ou JPG; até 500 KB.</div><button class="btn small" type="button" data-remove-company-logo>Remover logo</button></div></div></section>` +
+    `<section class="card company-settings"><div class="card-title"><h3>Identificação no PDF</h3></div>` +
+    `<div class="form-row">${field('pdfNomeExibido', 'Nome exibido no PDF')}${field('pdfContatoExibido', 'Contato exibido no PDF')}</div>` +
+    `${field('pdfTextoAbaixoLogo', 'Texto abaixo da logo')}<label>Rodapé do PDF<textarea id="empresa-pdfRodape" rows="3" maxlength="${COMPANY_PDF_FIELD_LIMITS.pdfRodape}">${companyValue('pdfRodape')}</textarea></label></section>` +
+    `<div class="company-settings-actions"><button type="button" class="btn primary" data-save-company ${state.companySettingsLoad.company === 'ready' && state.companySettingsLoad.pdf === 'ready' ? '' : 'disabled'}>Salvar configurações</button>${state.companySettingsLoad.company === 'error' || state.companySettingsLoad.pdf === 'error' ? '<p>Não foi possível ler as configurações. Atualize a página antes de editar.</p>' : state.companySettingsLoad.company !== 'ready' || state.companySettingsLoad.pdf !== 'ready' ? '<p>Carregando configurações…</p>' : ''}</div>`;
 }
 
 function renderCarteira() {
@@ -588,7 +677,10 @@ function bindPageEvents() {
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
   $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
-  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
+  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_PDF_DEFAULTS, ...state.companyPdfSettings }));
+  $('[data-save-company]')?.addEventListener('click', saveCompanySettings);
+  $('#empresa-logo-file')?.addEventListener('change', previewCompanyLogo);
+  $('[data-remove-company-logo]')?.addEventListener('click', () => setCompanyLogo(''));
   $$('[data-edit-product]').forEach(btn => btn.onclick = () => { state.productEditId = btn.dataset.editProduct; renderPage(); });
   $('[data-new-product]')?.addEventListener('click', () => { state.productEditId = ''; renderPage(); });
   $('[data-save-product]')?.addEventListener('click', saveProduct);
@@ -602,12 +694,93 @@ function bindPageEvents() {
   $$('[data-reactivate-seller]').forEach(btn => btn.onclick = () => reactivateSellerAccess(btn.dataset.reactivateSeller));
 }
 
+function setCompanyLogo(dataUrl) {
+  state.companyLogoDraft = dataUrl;
+  const preview = $('#empresa-logo-preview');
+  if (preview) preview.innerHTML = dataUrl ? `<img src="${escapeHtml(dataUrl)}" alt="Prévia da logo">` : '<span>Logo da empresa</span>';
+  const input = $('#empresa-logo-file');
+  if (input) input.value = '';
+}
+
+function previewCompanyLogo(event) {
+  const file = event.currentTarget.files?.[0];
+  if (!file) return;
+  if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > MAX_LOGO_FILE_BYTES) {
+    toast('Selecione uma imagem PNG ou JPG de até 500 KB.');
+    event.currentTarget.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  const input = event.currentTarget;
+  reader.onload = () => {
+    const dataUrl = String(reader.result || '');
+    if (dataUrl.length > MAX_LOGO_DATA_URL_CHARS) {
+      toast('A imagem codificada excede o limite seguro para salvar. Selecione uma imagem menor.');
+      input.value = '';
+      return;
+    }
+    setCompanyLogo(dataUrl);
+  };
+  reader.onerror = () => toast('Não foi possível carregar a imagem.');
+  reader.readAsDataURL(file);
+}
+
+async function saveCompanySettings() {
+  if (!isAdmin()) return toast('Somente o administrador pode salvar as configurações.');
+  if (state.companySettingsLoad.company !== 'ready' || state.companySettingsLoad.pdf !== 'ready') {
+    return toast('Aguarde o carregamento das configurações antes de salvar.');
+  }
+  const readFields = (limits, prefix = 'empresa-') => {
+    const values = {};
+    for (const [key, max] of Object.entries(limits)) {
+      const input = $(`#${prefix}${key}`);
+      const value = input?.value.trim() || '';
+      if (value.length > max) {
+        toast(`${key === 'pdfRodape' ? 'Rodapé do PDF' : input?.labels?.[0]?.textContent || key} excede o limite de ${max} caracteres.`);
+        input?.focus();
+        return null;
+      }
+      values[key] = value;
+    }
+    return values;
+  };
+  const settings = readFields(COMPANY_FIELD_LIMITS);
+  const pdfSettings = readFields(COMPANY_PDF_FIELD_LIMITS);
+  if (!settings || !pdfSettings) return;
+  const logoDataUrl = state.companyLogoDraft ?? state.companyPdfSettings.logoDataUrl ?? '';
+  if (logoDataUrl.length > MAX_LOGO_DATA_URL_CHARS) {
+    return toast('A logo excede o limite seguro de armazenamento. Selecione uma imagem menor.');
+  }
+  pdfSettings.logoDataUrl = logoDataUrl;
+  const estimatedBytes = value => new TextEncoder().encode(JSON.stringify(value)).length + 64 * 1024;
+  if (estimatedBytes(settings) > MAX_SETTINGS_DOCUMENT_BYTES || estimatedBytes(pdfSettings) > MAX_SETTINGS_DOCUMENT_BYTES) {
+    return toast('Os dados da empresa excedem o limite seguro do documento. Reduza o tamanho dos campos ou da logo.');
+  }
+  try {
+    const batch = fb.writeBatch(db);
+    batch.set(ref('configuracoes', 'empresa'), settings, { merge: true });
+    batch.set(ref('configuracoes', 'empresaPdf'), pdfSettings);
+    await batch.commit();
+    state.companySettings = { ...state.companySettings, ...settings };
+    state.companyPdfSettings = { ...state.companyPdfSettings, ...pdfSettings };
+    state.companyLogoDraft = null;
+    toast('Configurações da empresa salvas.');
+  } catch (err) {
+    console.error(err);
+    if (['invalid-argument', 'resource-exhausted'].includes(err.code) || /document.*(size|large)|too large/i.test(err.message || '')) {
+      toast('Não foi possível salvar: os dados excedem o limite do Firestore. Reduza o tamanho da logo ou dos campos.');
+    } else {
+      toast(`Não foi possível salvar as configurações. Seus dados continuam no formulário. ${err.message}`);
+    }
+  }
+}
+
 function bindOrderButtons() {
   $$('[data-approve]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.approve, 'aprovado'));
   $$('[data-reject]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.reject, 'rejeitado'));
   $$('[data-invoice]').forEach(btn => btn.onclick = () => changeOrderStatus(btn.dataset.invoice, 'faturado'));
   $$('[data-archive]').forEach(btn => btn.onclick = () => archiveOrder(btn.dataset.archive));
-  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf)));
+  $$('[data-pdf]').forEach(btn => btn.onclick = () => gerarPedidoPDF(state.pedidos.find(p => p.id === btn.dataset.pdf), { ...COMPANY_PDF_DEFAULTS, ...state.companyPdfSettings }));
 }
 
 function bindStartOrderButtons() {
